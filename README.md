@@ -3,6 +3,11 @@
 基于 WebRTC 和 Scrcpy 的高性能、低延迟云手机解决方案，无需客户端，可以通过网页直接连接。
 采用 **Fat Agent (直连模式)** 架构，结合 **硬件级 PTS 透传** 技术，实现媲美原生 Scrcpy 的丝滑体验。
 
+<p align="center">
+  <img src="screenshot/screenshot-pc.png" width="70%" />
+  <img src="screenshot/screenshot-phone.jpg" width="28%" />
+</p>
+
 ## 核心特性
 
 - **极致流畅**: 采用零扫描流解析 (Zero-Search Parsing)，不引入新的内存拷贝，性能和原生scrcpy基本一致。
