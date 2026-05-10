@@ -23,6 +23,7 @@
           <button class="tool-btn" @click="addTap"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>点击键</button>
           <button class="tool-btn" @click="addSwipe"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>滑动键</button>
           <button class="tool-btn" @click="addJoystick"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8M8 12h8"></path></svg>虚拟摇杆</button>
+          <button class="tool-btn" @click="addWheel"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>滚轮键</button>
         </div>
         <div class="toolbar-actions">
           <button class="action-btn cancel" @click="cancelEdit">取消</button>
@@ -58,16 +59,19 @@
 
       <!-- 渲染节点 -->
       <template v-for="map in displayMappings" :key="map.id">
-        <!-- Tap / Joystick / Swipe Start -->
-        <div v-show="['tap', 'joystick', 'swipe'].includes(map.type)"
+        <!-- Tap / Joystick / Swipe Start / Wheel -->
+        <div v-show="['tap', 'joystick', 'swipe', 'wheel'].includes(map.type)"
              class="key-node"
-             :class="{'is-selected': keymapStore.isEditMode && selectedId === map.id, 'is-joystick': map.type === 'joystick', 'is-hint': !keymapStore.isEditMode, 'is-swipe': map.type === 'swipe'}"
+             :class="{'is-selected': keymapStore.isEditMode && selectedId === map.id, 'is-joystick': map.type === 'joystick', 'is-hint': !keymapStore.isEditMode, 'is-swipe': map.type === 'swipe', 'is-wheel': map.type === 'wheel'}"
              :style="getNodeStyle(map, 'start')"
              @mousedown.stop.prevent="keymapStore.isEditMode && onNodeMouseDown($event, map, 'start')"
              @touchstart.stop.prevent="keymapStore.isEditMode && onNodeTouchStart($event, map, 'start')">
           
           <div class="key-label" v-if="map.type === 'tap' || map.type === 'swipe'">{{ map.key ? map.key.toUpperCase() : '?' }}</div>
           <div class="joy-label" v-if="map.type === 'joystick'">WASD</div>
+          <div class="wheel-label" v-if="map.type === 'wheel'">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </div>
           
           <!-- 删除按钮 -->
           <button v-if="keymapStore.isEditMode && selectedId === map.id" class="delete-btn" @mousedown.stop.prevent="deleteMapping(map.id)" @touchstart.stop.prevent="deleteMapping(map.id)">×</button>
@@ -91,7 +95,7 @@
     <!-- 节点设置面板 (仅编辑模式) -->
     <div v-if="keymapStore.isEditMode && selectedNode" class="node-settings" @mousedown.stop @touchstart.stop>
       <div class="settings-header">
-        <h4>{{ selectedNode.type === 'joystick' ? '摇杆设置' : (selectedNode.type === 'swipe' ? '滑动设置' : '按键设置') }}</h4>
+        <h4>{{ selectedNode.type === 'joystick' ? '摇杆设置' : (selectedNode.type === 'swipe' ? '滑动设置' : (selectedNode.type === 'wheel' ? '滚轮设置' : '按键设置')) }}</h4>
         <button class="close-settings-btn" @click="selectedId = null">✕</button>
       </div>
       <div class="setting-item" v-if="selectedNode.type === 'tap' || selectedNode.type === 'swipe'">
@@ -107,7 +111,15 @@
         <label>摇杆大小:</label>
         <input type="range" v-model.number="selectedNode.radius" min="0.05" max="0.3" step="0.01" @input="updateNode" />
       </div>
+      <div class="setting-item" v-if="selectedNode.type === 'wheel'">
+        <label>滚轮动作:</label>
+        <select v-model="selectedNode.action" @change="updateNode" class="profile-select" style="max-width: 100px;">
+          <option value="scroll">上下滑动</option>
+          <option value="zoom">双指缩放</option>
+        </select>
+      </div>
       <p class="setting-tip" v-if="selectedNode.type === 'tap' || selectedNode.type === 'swipe'">选中上方输入框后，按键盘任意键进行绑定</p>
+      <p class="setting-tip" v-if="selectedNode.type === 'wheel'">在游戏内滚动鼠标滚轮将触发对应动作</p>
     </div>
   </div>
 </template>
@@ -387,6 +399,16 @@ function addJoystick() {
     keys: { up: 'w', down: 's', left: 'a', right: 'd' },
     center: { x: 0.2, y: 0.75 },
     radius: 0.1
+  })
+  selectedId.value = editableMappings.value[editableMappings.value.length - 1].id
+}
+
+function addWheel() {
+  editableMappings.value.push({
+    id: 'm_' + Date.now(),
+    type: 'wheel',
+    action: 'scroll', // 'scroll' or 'zoom'
+    pos: { x: 0.5, y: 0.5 }
   })
   selectedId.value = editableMappings.value[editableMappings.value.length - 1].id
 }
@@ -737,13 +759,20 @@ function saveEdit() {
   font-size: 18px;
   opacity: 0.6;
 }
-.key-node.is-hint .joy-label {
+.key-node.is-hint .joy-label,
+.key-node.is-hint .wheel-label {
   font-size: 12px;
   opacity: 0.6;
 }
-.key-node.is-hint.is-joystick {
+.key-node.is-hint.is-joystick,
+.key-node.is-hint.is-wheel {
   background: rgba(100, 200, 255, 0.1);
   border: 1px solid rgba(100, 200, 255, 0.2);
+}
+
+.key-node.is-wheel {
+  background: rgba(100, 200, 255, 0.2);
+  border-color: rgba(100, 200, 255, 0.8);
 }
 
 .key-label {
@@ -758,6 +787,21 @@ function saveEdit() {
   font-size: 14px;
   font-weight: bold;
   text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+}
+
+.wheel-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+}
+.wheel-label .icon {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }
 
 .delete-btn {

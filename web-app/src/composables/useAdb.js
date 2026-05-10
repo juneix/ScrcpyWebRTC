@@ -5,6 +5,7 @@ import { PushReadableStream, Consumable, StructDeserializeStream, pipeFrom } fro
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
+import { debugLog } from '@/utils/debug'
 
 const credentialStore = new AdbWebCredentialStore('cloudphone-adb')
 
@@ -57,7 +58,7 @@ export function useAdb(webrtc) {
   }
 
   async function initAdb(container) {
-    console.log('[ADB] initAdb requested (yume-chan)')
+    debugLog('[ADB] initAdb requested (yume-chan)')
 
     if (adb || transport) {
       closeAdb()
@@ -93,7 +94,7 @@ export function useAdb(webrtc) {
       })
 
       adb = new Adb(transport)
-      console.log('[ADB] Authenticated, banner:', transport.banner.toString())
+      debugLog('[ADB] Authenticated, banner:', transport.banner.toString())
       term.writeln(`\x1b[32m[ADB] 认证成功 (${transport.banner.product || 'device'})\x1b[0m`)
 
       // 3. 打开交互式 shell
@@ -140,7 +141,7 @@ export function useAdb(webrtc) {
   }
 
   function closeAdb() {
-    console.log('[ADB] Closing session')
+    debugLog('[ADB] Closing session')
 
     if (shellSocket) {
       try { shellSocket.close() } catch (e) {}

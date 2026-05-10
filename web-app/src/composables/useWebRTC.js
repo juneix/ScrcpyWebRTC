@@ -1,7 +1,8 @@
 import { ref, onUnmounted } from 'vue'
 import { useDeviceStore } from '@/stores/devices'
+import { debugInfo, debugLog, debugWarn } from '@/utils/debug'
 
-export function useWebRTC(deviceId) {
+export function useWebRTC(deviceId, options = {}) {
   const status = ref('disconnected')
   const error = ref(null)
 
@@ -11,6 +12,7 @@ export function useWebRTC(deviceId) {
   let inputChannel = null
   let adbChannel = null
   let videoElementGetter = null  // 获取 video 元素的函数
+  let touchSeq = 0
   const DEVICE_W = ref(1080)
   const DEVICE_H = ref(1920)
 
@@ -22,11 +24,11 @@ export function useWebRTC(deviceId) {
     // 如果在开发模式（端口 3000），使用当前 host，依靠 Vite 代理
     const wsUrl = `${wsProtocol}//${location.host}/connect_client`
     
-    console.log('[Signaling] Connecting to:', wsUrl)
+    debugLog('[Signaling] Connecting to:', wsUrl)
     ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
-      console.log('[Signaling] WebSocket connected')
+      debugLog('[Signaling] WebSocket connected')
       status.value = 'signaling'
       ws.send(JSON.stringify({
         message_type: 'connect',
@@ -37,7 +39,7 @@ export function useWebRTC(deviceId) {
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data)
-        console.log('[Signaling] Received:', msg.message_type || msg.type, msg)
+        debugLog('[Signaling] Received:', msg.message_type || msg.type, msg)
         handleMessage(msg)
       } catch (e) {
         console.error('[Signaling] Failed to parse message:', e, evt.data)
@@ -51,7 +53,7 @@ export function useWebRTC(deviceId) {
     }
 
     ws.onclose = () => {
-      console.log('[Signaling] WebSocket closed')
+      debugLog('[Signaling] WebSocket closed')
       if (status.value !== 'disconnected') {
         status.value = 'disconnected'
       }
@@ -65,10 +67,14 @@ export function useWebRTC(deviceId) {
         status.value = 'waiting_offer'
         if (msg.ice_servers && msg.ice_servers.length > 0) {
           iceServers = msg.ice_servers
-          console.log('[WebRTC] ICE Servers updated from config:', iceServers)
+          debugLog('[WebRTC] ICE Servers updated from config:', iceServers)
         }
         // 发送 request-offer 请求
-        sendForward({ type: 'request-offer' })
+        const offerPayload = { type: 'request-offer' }
+        if (Object.keys(options).length > 0) {
+          offerPayload.scrcpy_options = options
+        }
+        sendForward(offerPayload)
         break
       case 'device_info':
         handleDeviceInfo(msg.device_info)
@@ -91,7 +97,7 @@ export function useWebRTC(deviceId) {
       const display = info.displays[0]
       DEVICE_W.value = display.x_res || 1080
       DEVICE_H.value = display.y_res || 1920
-      console.log(`[WebRTC] Device dimensions updated: ${DEVICE_W.value}x${DEVICE_H.value}`)
+      debugLog(`[WebRTC] Device dimensions updated: ${DEVICE_W.value}x${DEVICE_H.value}`)
     }
   }
 function handleDeviceMessage(payload) {
@@ -99,7 +105,7 @@ function handleDeviceMessage(payload) {
 
   switch (payload.type) {
     case 'offer':
-      console.log('[WebRTC] Received offer, length:', payload.sdp.length)
+      debugLog('[WebRTC] Received offer, length:', payload.sdp.length)
       createPeerConnection()
       pc.setRemoteDescription(new RTCSessionDescription({
         type: 'offer',
@@ -118,7 +124,7 @@ function handleDeviceMessage(payload) {
             type: 'answer',
             sdp: sdp
           });
-          console.log('[WebRTC] Answer SDP munged to 20Mbps (bps)');
+          debugLog('[WebRTC] Answer SDP munged to 20Mbps (bps)')
           return pc.setLocalDescription(newAnswer);
         })
         .then(() => {
@@ -151,7 +157,7 @@ function handleDeviceMessage(payload) {
 
       case 'ice-candidate':
         if (pc && payload.candidate) {
-          console.log('[WebRTC] Received remote ICE candidate')
+          debugLog('[WebRTC] Received remote ICE candidate')
           pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
             .catch(e => console.warn('ICE error:', e))
         }
@@ -189,7 +195,7 @@ function handleDeviceMessage(payload) {
 
   function sendAnswer() {
     if (!pc || !pc.localDescription) return
-    console.log('[WebRTC] Sending answer')
+    debugLog('[WebRTC] Sending answer')
     sendForward({
       type: 'answer',
       sdp: pc.localDescription.sdp
@@ -199,7 +205,7 @@ function handleDeviceMessage(payload) {
   function createPeerConnection() {
     if (pc) return
 
-    console.log('[WebRTC] Creating RTCPeerConnection with servers:', iceServers)
+    debugLog('[WebRTC] Creating RTCPeerConnection with servers:', iceServers)
     pc = new RTCPeerConnection({
       iceServers: iceServers
     })
@@ -210,7 +216,7 @@ function handleDeviceMessage(payload) {
     setupAdbChannel(adbChannel)
 
     pc.ontrack = (evt) => {
-      console.log('[WebRTC] ontrack event:', evt.track.kind, evt.streams)
+      debugLog('[WebRTC] ontrack event:', evt.track.kind, evt.streams)
       const video = videoElementGetter ? videoElementGetter() : null
       if (video) {
         if (evt.streams && evt.streams[0]) {
@@ -220,7 +226,7 @@ function handleDeviceMessage(payload) {
           stream.addTrack(evt.track)
           video.srcObject = stream
         }
-        console.log('[WebRTC] Set srcObject to video element')
+        debugLog('[WebRTC] Set srcObject to video element')
         // 强制播放
         video.play().catch(e => console.warn('[WebRTC] play() failed:', e))
       } else {
@@ -242,7 +248,7 @@ function handleDeviceMessage(payload) {
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log('[WebRTC] ICE Connection State:', pc.iceConnectionState)
+      debugLog('[WebRTC] ICE Connection State:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         status.value = 'connected'
       } else if (pc.iceConnectionState === 'failed') {
@@ -252,7 +258,7 @@ function handleDeviceMessage(payload) {
     }
 
     pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection State:', pc.connectionState)
+      debugLog('[WebRTC] Connection State:', pc.connectionState)
       if (pc.connectionState === 'connected') {
         status.value = 'connected'
       } else if (pc.connectionState === 'failed') {
@@ -264,14 +270,14 @@ function handleDeviceMessage(payload) {
     }
 
     pc.ondatachannel = (evt) => {
-      console.log('[WebRTC] Received DataChannel:', evt.channel.label)
+      debugLog('[WebRTC] Received DataChannel:', evt.channel.label)
       if (evt.channel.label === 'input-channel') {
         inputChannel = evt.channel
         inputChannel.onopen = () => {
-          console.log('[DataChannel] input-channel OPEN')
+          debugLog('[DataChannel] input-channel OPEN')
         }
         inputChannel.onclose = () => {
-          console.log('[DataChannel] input-channel CLOSED')
+          debugLog('[DataChannel] input-channel CLOSED')
         }
         inputChannel.onerror = (e) => console.error('[DataChannel] Error:', e)
       }
@@ -298,7 +304,27 @@ function handleDeviceMessage(payload) {
           if (dt > 0 && newFrames === 0 && !wasPaused && status.value === 'connected') {
             pauseCount++
             wasPaused = true
+            debugWarn('[VideoTrace] decode-pause', {
+              pauseCount,
+              ts: Date.now(),
+              dtMs: Math.round(dt * 1000),
+              framesDecoded: report.framesDecoded,
+              bytesReceived: report.bytesReceived,
+              pliCount: report.pliCount || 0,
+              packetsLost: report.packetsLost || 0,
+              jitterBufferDelay: report.jitterBufferDelay,
+              jitterBufferEmittedCount: report.jitterBufferEmittedCount
+            })
           } else if (newFrames > 0) {
+            if (wasPaused) {
+              debugInfo('[VideoTrace] decode-resume', {
+                ts: Date.now(),
+                newFrames,
+                framesDecoded: report.framesDecoded,
+                pliCount: report.pliCount || 0,
+                packetsLost: report.packetsLost || 0
+              })
+            }
             wasPaused = false
           }
 
@@ -342,6 +368,8 @@ function handleDeviceMessage(payload) {
     if (!inputChannel || inputChannel.readyState !== 'open') return
     const video = videoElementGetter ? videoElementGetter() : null
     if (!video || !video.videoWidth || !video.videoHeight) return
+    const seq = ++touchSeq
+    const clientTsMs = Date.now()
 
     const videoW = video.videoWidth
     const videoH = video.videoHeight
@@ -400,6 +428,8 @@ function handleDeviceMessage(payload) {
     const msg = JSON.stringify({
       type: 'touch',
       id,
+      seq,
+      client_ts_ms: clientTsMs,
       action,
       x: finalX,
       y: finalY,
@@ -407,7 +437,23 @@ function handleDeviceMessage(payload) {
       h: targetH
     })
 
+    const bufferedBefore = inputChannel.bufferedAmount
     inputChannel.send(msg)
+    const bufferedAfter = inputChannel.bufferedAmount
+    if (action !== 2 || seq % 30 === 0 || bufferedAfter > 65536) {
+      debugInfo('[TouchTrace] dc-send', {
+        seq,
+        action,
+        id,
+        x: finalX,
+        y: finalY,
+        w: targetW,
+        h: targetH,
+        clientTsMs,
+        bufferedBefore,
+        bufferedAfter
+      })
+    }
   }
 
   function requestScreenshot() {
@@ -433,19 +479,19 @@ function handleDeviceMessage(payload) {
 
   function setupAdbChannel(channel) {
     channel.onopen = () => {
-      console.log('[ADB] DataChannel OPEN')
+      debugLog('[ADB] DataChannel OPEN')
     }
     channel.onmessage = (evt) => {
       // console.log('[ADB] DataChannel Message Received:', evt.data.byteLength, 'bytes')
       if (adbDataCallback) {
         adbDataCallback(evt.data)
       } else {
-        console.log('[ADB] Buffering data packet:', evt.data.byteLength, 'bytes')
+        debugLog('[ADB] Buffering data packet:', evt.data.byteLength, 'bytes')
         adbDataBuffer.push(evt.data)
       }
     }
     channel.onclose = () => {
-      console.log('[ADB] DataChannel CLOSED')
+      debugLog('[ADB] DataChannel CLOSED')
     }
     channel.onerror = (e) => console.error('[ADB] DataChannel Error:', e)
   }
@@ -461,7 +507,7 @@ function handleDeviceMessage(payload) {
     }
     // 立即处理缓冲中的数据
     if (adbDataBuffer.length > 0) {
-      console.log(`[ADB] Flushing ${adbDataBuffer.length} buffered packets`)
+      debugLog(`[ADB] Flushing ${adbDataBuffer.length} buffered packets`)
       adbDataBuffer.forEach(data => callback(data))
       adbDataBuffer = []
     }

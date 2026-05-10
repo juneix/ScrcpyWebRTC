@@ -10,6 +10,9 @@ export class KeymapEngine {
     
     // 摇杆状态记录 mapping.id -> { state: { up, down, left, right }, pointerId: number|null }
     this.joysticks = new Map(); 
+    
+    // 滚轮状态记录 mapping.id -> { pointerId1, pointerId2, timeoutId, accumulatedDelta }
+    this.wheels = new Map();
   }
 
   updateProfile(profile) {
@@ -33,6 +36,18 @@ export class KeymapEngine {
       }
       joy.state = { up: false, down: false, left: false, right: false };
     }
+    
+    // 释放所有 wheel 触控
+    for (const [mapId, state] of this.wheels.entries()) {
+      if (state.timeoutId) clearTimeout(state.timeoutId);
+      if (state.pointerId1 !== null) {
+        this.sendTouch(1, 0, 0, state.pointerId1, { x: 0, y: 0, isRotated: true });
+      }
+      if (state.pointerId2 !== null) {
+        this.sendTouch(1, 0, 0, state.pointerId2, { x: 0, y: 0, isRotated: true });
+      }
+    }
+    this.wheels.clear();
   }
 
   /**
@@ -215,6 +230,134 @@ export class KeymapEngine {
         const endY = map.endPos.y * videoHeight;
         this.sendTouch(1, 0, 0, ptrId, { x: endX, y: endY, isRotated: true });
         this.activePointers.delete(map.id);
+      }
+    }
+  }
+
+  /**
+   * 处理滚轮事件
+   */
+  handleWheelEvent(event, videoWidth, videoHeight) {
+    if (!this.activeProfile || !this.activeProfile.mappings) return false;
+    
+    let consumed = false;
+    for (const map of this.activeProfile.mappings) {
+      if (map.type === 'wheel') {
+        this.handleWheel(map, event.deltaY, videoWidth, videoHeight);
+        consumed = true;
+      }
+    }
+    return consumed;
+  }
+
+  handleWheel(map, deltaY, videoWidth, videoHeight) {
+    if (!this.wheels.has(map.id)) {
+      this.wheels.set(map.id, { pointerId1: null, pointerId2: null, timeoutId: null, accumulatedDelta: 0 });
+    }
+    const state = this.wheels.get(map.id);
+    const px = map.pos.x * videoWidth;
+    const py = map.pos.y * videoHeight;
+
+    if (state.timeoutId) {
+      clearTimeout(state.timeoutId);
+      state.timeoutId = null;
+    }
+
+    if (map.action === 'scroll') {
+      if (state.pointerId1 === null) {
+        state.pointerId1 = this.pointerIdBase++;
+        // 根据滚轮方向决定初始落点：滚轮向下(内容向上)，手指从偏下方落下然后往上滑
+        state.accumulatedDelta = Math.sign(deltaY) * (videoHeight * 0.15);
+        let startY = py + state.accumulatedDelta;
+        startY = Math.max(0, Math.min(videoHeight, startY));
+        this.sendTouch(0, 0, 0, state.pointerId1, { x: px, y: startY, isRotated: true });
+      }
+      
+      const step = Math.sign(deltaY) * (videoHeight * 0.06); 
+      state.accumulatedDelta -= step;
+      
+      let currentY = py + state.accumulatedDelta;
+      
+      // 如果滑动了超过 30% 屏幕高度，或者到达边缘，立刻抬起手指，使得连续滚动时产生“反复拨动”的真实操作感
+      if (currentY <= 0 || currentY >= videoHeight || Math.abs(state.accumulatedDelta) > videoHeight * 0.3) {
+        currentY = Math.max(0, Math.min(videoHeight, currentY));
+        this.sendTouch(2, 0, 0, state.pointerId1, { x: px, y: currentY, isRotated: true });
+        this.sendTouch(1, 0, 0, state.pointerId1, { x: px, y: currentY, isRotated: true });
+        state.pointerId1 = null;
+      } else {
+        this.sendTouch(2, 0, 0, state.pointerId1, { x: px, y: currentY, isRotated: true });
+        
+        state.timeoutId = setTimeout(() => {
+          if (state.pointerId1 !== null) {
+            this.sendTouch(1, 0, 0, state.pointerId1, { x: px, y: currentY, isRotated: true });
+            state.pointerId1 = null;
+          }
+        }, 200);
+      }
+      
+    } else if (map.action === 'zoom') {
+      // 强制以屏幕中心为原点，并采用 45 度角倾斜，模拟最真实的手指捏合习惯
+      const centerX = videoWidth / 2;
+      const centerY = videoHeight / 2;
+      const minRadius = videoHeight * 0.05;
+      const maxRadius = videoHeight * 0.40;
+
+      if (state.pointerId1 === null) {
+        state.pointerId1 = this.pointerIdBase++;
+        state.pointerId2 = this.pointerIdBase++;
+        
+        // 放大时，手指从靠近中心开始往外分；缩小时，手指从外围开始往中心捏
+        if (deltaY < 0) { // scroll up -> zoom in
+          state.accumulatedDelta = minRadius + (videoHeight * 0.02);
+        } else { // scroll down -> zoom out
+          state.accumulatedDelta = maxRadius - (videoHeight * 0.02);
+        }
+        
+        const angle = Math.PI / 4; // 45度倾斜
+        const offsetX = state.accumulatedDelta * Math.cos(angle);
+        const offsetY = state.accumulatedDelta * Math.sin(angle);
+        
+        this.sendTouch(0, 0, 0, state.pointerId1, { x: centerX - offsetX, y: centerY - offsetY, isRotated: true });
+        this.sendTouch(0, 0, 0, state.pointerId2, { x: centerX + offsetX, y: centerY + offsetY, isRotated: true });
+      }
+
+      const step = Math.sign(deltaY) * (videoHeight * 0.05); 
+      // scroll up (deltaY<0) -> step < 0 -> accumulatedDelta 增加 (放大)
+      // scroll down (deltaY>0) -> step > 0 -> accumulatedDelta 减小 (缩小)
+      state.accumulatedDelta -= step;
+      
+      let outOfBounds = false;
+      if (state.accumulatedDelta <= minRadius) {
+        state.accumulatedDelta = minRadius;
+        outOfBounds = true;
+      }
+      if (state.accumulatedDelta >= maxRadius) {
+        state.accumulatedDelta = maxRadius;
+        outOfBounds = true;
+      }
+
+      const angle = Math.PI / 4;
+      const offsetX = state.accumulatedDelta * Math.cos(angle);
+      const offsetY = state.accumulatedDelta * Math.sin(angle);
+
+      this.sendTouch(2, 0, 0, state.pointerId1, { x: centerX - offsetX, y: centerY - offsetY, isRotated: true });
+      this.sendTouch(2, 0, 0, state.pointerId2, { x: centerX + offsetX, y: centerY + offsetY, isRotated: true });
+
+      if (outOfBounds) {
+        // 到达捏合/扩张的极限，立刻抬手，使得继续滚动滚轮时触发新的一轮捏合/扩张动作
+        this.sendTouch(1, 0, 0, state.pointerId1, { x: centerX - offsetX, y: centerY - offsetY, isRotated: true });
+        this.sendTouch(1, 0, 0, state.pointerId2, { x: centerX + offsetX, y: centerY + offsetY, isRotated: true });
+        state.pointerId1 = null;
+        state.pointerId2 = null;
+      } else {
+        state.timeoutId = setTimeout(() => {
+          if (state.pointerId1 !== null) {
+            this.sendTouch(1, 0, 0, state.pointerId1, { x: centerX - offsetX, y: centerY - offsetY, isRotated: true });
+            this.sendTouch(1, 0, 0, state.pointerId2, { x: centerX + offsetX, y: centerY + offsetY, isRotated: true });
+            state.pointerId1 = null;
+            state.pointerId2 = null;
+          }
+        }, 200);
       }
     }
   }

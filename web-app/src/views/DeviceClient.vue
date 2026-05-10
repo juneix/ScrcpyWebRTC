@@ -1,8 +1,7 @@
 <template>
   <div class="device-panel-view" :class="{ 'is-mobile': isMobile, 'mobile-landscape': isMobile && isVideoLandscape }">
-    <!-- 主内容区 -->
-    <div class="main-content">
-
+    <!-- 主内容区 (视频部分) -->
+    <div class="device-client-main">
       <!-- 主视频容器 -->
       <div class="video-wrapper" ref="containerRef">
         <!-- 悬浮全屏按钮 (移入视频容器内，保证全屏时可见) -->
@@ -39,7 +38,6 @@
           <span :class="['stat-pli', { 'stat-warn': videoStats.pliCount > 0 }]">PLI {{ videoStats.pliCount }}</span>
           <span class="stat-delimiter">|</span>
           <span :class="['stat-pause', { 'stat-warn': videoStats.pauseCount > 0 }]">Pause {{ videoStats.pauseCount }}</span>
-          <span class="stat-delimiter">|</span>
           <span :class="['stat-lost', { 'stat-warn': videoStats.lostCount > 0 }]">Lost {{ videoStats.lostCount }}</span>
         </div>
 
@@ -95,11 +93,17 @@
               <svg v-else class="icon" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
               {{ keymapStore.showKeyHints ? '隐藏提示' : '显示提示' }}
             </button>
+            <button class="fab-item" @click="showSettingsModal = true; showMobileMenu=false">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 设置
+            </button>
             
             <div class="fab-divider" v-if="customButtons.length > 0"></div>
-            <button v-for="(btn, idx) in customButtons" :key="idx" class="fab-item custom-item" @click="quickKey(btn.cmd); showMobileMenu=false" @contextmenu.prevent="removeCustomButton(idx)">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg> {{ btn.name }}
-            </button>
+            <div v-for="(btn, idx) in customButtons" :key="idx" class="fab-item-wrapper">
+              <button class="fab-item custom-item" @click="quickKey(btn.cmd); showMobileMenu=false" :title="btn.cmd">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg> {{ btn.name }}
+              </button>
+              <button class="fab-item-delete" @click.stop="removeCustomButton(idx)" title="删除此按键">×</button>
+            </div>
             <button class="fab-item add-btn" @click="addCustomButton">
               <svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> 添加按键
             </button>
@@ -114,8 +118,69 @@
         <!-- 按键映射编辑器 -->
         <KeymapEditor :video-element="videoElement" />
       </div>
+    </div>
 
-      <!-- 控制台/ADB 抽屉 -->
+    <!-- PC 右侧控制栏 -->
+    <div v-if="!isMobile" class="control-sidebar">
+      <div class="sidebar-group">
+        <button class="sidebar-btn" @click="quickKey('input keyevent 26')" title="电源">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+          <span class="btn-text">电源</span>
+        </button>
+        <button class="sidebar-btn" @click="quickKey('input keyevent 3')" title="HOME">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+          <span class="btn-text">首页</span>
+        </button>
+        <button class="sidebar-btn" @click="quickKey('input keyevent 4')" title="BACK">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg>
+          <span class="btn-text">返回</span>
+        </button>
+        <button class="sidebar-btn" @click="showConsole = !showConsole" title="控制台">
+          <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span class="btn-text">终端</span>
+        </button>
+        <button class="sidebar-btn" @click="keymapStore.setEditMode(true)" title="按键映射">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+          <span class="btn-text">映射</span>
+        </button>
+        <button class="sidebar-btn" @click="keymapStore.toggleKeyHints()" :title="keymapStore.showKeyHints ? '隐藏按键提示' : '显示按键提示'">
+          <svg v-if="keymapStore.showKeyHints" class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <svg v-else class="icon" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+          <span class="btn-text">提示</span>
+        </button>
+      </div>
+      
+      <div class="sidebar-divider"></div>
+      
+      <div class="sidebar-group custom-group">
+        <div v-for="(btn, idx) in customButtons" :key="idx" class="sidebar-btn-wrapper">
+          <button class="sidebar-btn custom-btn" @click="quickKey(btn.cmd)" :title="btn.cmd">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+            <span class="btn-text">{{ btn.name }}</span>
+          </button>
+          <button class="sidebar-btn-delete" @click.stop="removeCustomButton(idx)" title="删除此按键">×</button>
+        </div>
+        <button class="sidebar-btn add-btn" @click="addCustomButton" title="添加按键">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span class="btn-text">添加</span>
+        </button>
+      </div>
+      
+      <div style="flex: 1"></div>
+      
+      <button class="sidebar-btn danger" @click="quitAgent" title="退出 Agent">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+        <span class="btn-text">退出</span>
+      </button>
+
+      <button class="sidebar-btn" @click="showSettingsModal = true" title="连接设置">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span class="btn-text">设置</span>
+      </button>
+    </div>
+
+    <!-- 控制台/ADB 抽屉 (Teleport 到主列表下方) -->
+    <Teleport to="#main-layout-content">
       <div v-show="showConsole" class="console-drawer">
         <div class="console-header">
           <div class="console-tabs">
@@ -163,64 +228,24 @@
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
-    <!-- PC 右侧控制栏 -->
-    <div v-if="!isMobile" class="control-sidebar">
-      <div class="sidebar-group">
-        <button class="sidebar-btn" @click="quickKey('input keyevent 26')" title="电源">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-          <span class="btn-text">电源</span>
-        </button>
-        <button class="sidebar-btn" @click="quickKey('input keyevent 3')" title="HOME">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-          <span class="btn-text">首页</span>
-        </button>
-        <button class="sidebar-btn" @click="quickKey('input keyevent 4')" title="BACK">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg>
-          <span class="btn-text">返回</span>
-        </button>
-        <button class="sidebar-btn" @click="showConsole = !showConsole" title="控制台">
-          <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-          <span class="btn-text">终端</span>
-        </button>
-        <button class="sidebar-btn" @click="keymapStore.setEditMode(true)" title="按键映射">
-          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
-          <span class="btn-text">映射</span>
-        </button>
-        <button class="sidebar-btn" @click="keymapStore.toggleKeyHints()" :title="keymapStore.showKeyHints ? '隐藏按键提示' : '显示按键提示'">
-          <svg v-if="keymapStore.showKeyHints" class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-          <svg v-else class="icon" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-          <span class="btn-text">提示</span>
-        </button>
-      </div>
-      
-      <div class="sidebar-divider"></div>
-      
-      <div class="sidebar-group custom-group">
-        <button v-for="(btn, idx) in customButtons" :key="idx" class="sidebar-btn custom-btn" @click="quickKey(btn.cmd)" @contextmenu.prevent="removeCustomButton(idx)" :title="btn.cmd + ' (右键删除)'">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-          <span class="btn-text">{{ btn.name }}</span>
-        </button>
-        <button class="sidebar-btn add-btn" @click="addCustomButton" title="添加按键">
-          <svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span class="btn-text">添加</span>
-        </button>
-      </div>
-      
-      <div style="flex: 1"></div>
-      
-      <button class="sidebar-btn danger" @click="quitAgent" title="退出 Agent">
-        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
-        <span class="btn-text">退出</span>
-      </button>
-    </div>
+    <!-- 截图预览弹窗 -->
+    <ScreenshotModal 
+      v-if="showScreenshot" 
+      :image-data="screenshotData" 
+      @close="showScreenshot = false" 
+    />
 
-    <!-- 截图模态框 -->
-    <ScreenshotModal
-      v-if="showScreenshot"
-      :image-data="screenshotData"
-      @close="closeScreenshot"
+    <!-- 连接设置弹窗 -->
+    <SettingsModal 
+      v-if="showSettingsModal" 
+      :settings="localSettings" 
+      :is-connected="true"
+      :is-custom="hasCustomSettings(currentId)"
+      @close="showSettingsModal = false" 
+      @save="saveSettings" 
+      @reset="resetSettings"
     />
   </div>
 </template>
@@ -233,8 +258,10 @@ import { useWebRTC } from '@/composables/useWebRTC'
 import { useAdb } from '@/composables/useAdb'
 import { useKeymapStore } from '@/stores/keymap'
 import { KeymapEngine } from '@/utils/keymapEngine'
+import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceSettings } from '@/utils/settings'
 import ConnectionStatus from '@/components/ConnectionStatus.vue'
 import ScreenshotModal from '@/components/ScreenshotModal.vue'
+import SettingsModal from '@/components/SettingsModal.vue'
 import KeymapEditor from '@/components/KeymapEditor.vue'
 
 const props = defineProps({
@@ -254,6 +281,44 @@ const containerRef = ref(null)
 const isFullscreen = ref(false)
 const showScreenshot = ref(false)
 const screenshotData = ref(null)
+const showSettingsModal = ref(false)
+
+const localSettings = ref(getDeviceSettings(currentId.value))
+
+const scrcpyOptions = computed(() => {
+  return {
+    max_fps: localSettings.value.fps,
+    max_size: localSettings.value.size,
+    bitrate: localSettings.value.bitrate * 1000000,
+    min_bitrate: localSettings.value.minBitrate * 1000000,
+    max_bitrate: localSettings.value.maxBitrate * 1000000,
+    bwe: localSettings.value.bwe,
+    debug: localSettings.value.debug
+  }
+})
+
+function saveSettings(newSettings) {
+  localSettings.value = newSettings
+  saveDeviceSettings(currentId.value, newSettings)
+  
+  if (currentId.value) {
+    webrtc.disconnect()
+    closeAdb()
+    webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+    setupWebRTC()
+  }
+}
+
+function resetSettings() {
+  deleteDeviceSettings(currentId.value)
+  localSettings.value = getDeviceSettings(currentId.value) // Loads global settings now
+  if (currentId.value) {
+    webrtc.disconnect()
+    closeAdb()
+    webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+    setupWebRTC()
+  }
+}
 
 // 控制台状态
 const showConsole = ref(false)
@@ -341,7 +406,7 @@ function removeCustomButton(index) {
 const videoStats = ref(null)
 let statsInterval = null
 
-let webrtc = useWebRTC(currentId.value)
+let webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
 const { isAdbConnected, initAdb, closeAdb } = useAdb(webrtc)
 
 const keymapStore = useKeymapStore()
@@ -376,6 +441,17 @@ function onGlobalKeyUp(e) {
   }
 }
 
+function onGlobalWheel(e) {
+  if (keymapStore.isEditMode) return;
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+  if (!videoNaturalSize.value.width) return;
+
+  if (keymapEngine.handleWheelEvent(e, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
+    e.preventDefault();
+  }
+}
+
 // 布局推荐相关
 let layoutInterval = null
 
@@ -395,7 +471,7 @@ watch(currentId, (newId) => {
   if (newId) {
     webrtc.disconnect()
     closeAdb()
-    webrtc = useWebRTC(newId)
+    webrtc = useWebRTC(newId, scrcpyOptions.value)
     setupWebRTC()
   }
 })
@@ -437,6 +513,7 @@ onMounted(() => {
   })
   document.addEventListener('keydown', onGlobalKeyDown)
   document.addEventListener('keyup', onGlobalKeyUp)
+  document.addEventListener('wheel', onGlobalWheel, { passive: false })
   // 定期检查布局
   layoutInterval = setInterval(checkAndRecommendLayout, 2000)
   // 监听窗口大小变化
@@ -448,6 +525,7 @@ onUnmounted(() => {
   closeAdb()
   document.removeEventListener('keydown', onGlobalKeyDown)
   document.removeEventListener('keyup', onGlobalKeyUp)
+  document.removeEventListener('wheel', onGlobalWheel)
   if (layoutInterval) clearInterval(layoutInterval)
   if (statsInterval) clearInterval(statsInterval)
   window.removeEventListener('resize', updateMobileState)
@@ -543,11 +621,6 @@ function toggleFullscreen() {
 
 function takeScreenshot() {
   webrtc.requestScreenshot()
-}
-
-function closeScreenshot() {
-  showScreenshot.value = false
-  screenshotData.value = null
 }
 
 function execCmd() {
@@ -654,7 +727,7 @@ function onTouchEnd(e) {
   overflow: hidden;
 }
 
-.main-content {
+.device-client-main {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -770,6 +843,38 @@ function onTouchEnd(e) {
   gap: 12px;
   width: 100%;
   align-items: center;
+}
+
+.sidebar-btn-wrapper {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.sidebar-btn-delete {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #dc3545;
+  color: white;
+  border: 1px solid #111;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 11;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sidebar-btn-wrapper:hover .sidebar-btn-delete {
+  opacity: 1;
 }
 
 .sidebar-btn {
@@ -903,6 +1008,34 @@ function onTouchEnd(e) {
   white-space: nowrap;
   display: flex;
   align-items: center;
+  width: 100%;
+}
+
+.fab-item-wrapper {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+
+.fab-item-delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc3545;
+  color: white;
+  border: none;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 11;
+  padding: 0;
+  line-height: 1;
 }
 
 .fab-item .icon {
@@ -918,17 +1051,13 @@ function onTouchEnd(e) {
 
 /* 控制台样式 */
 .console-drawer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
   height: 360px;
   background: #151515;
   border-top: 2px solid var(--accent);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  box-shadow: 0 -10px 30px rgba(0,0,0,0.6);
+  flex-shrink: 0;
 }
 
 .console-header {

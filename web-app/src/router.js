@@ -9,14 +9,6 @@ const routes = [
     }
   },
   {
-    path: '/device/:deviceId',
-    name: 'DeviceDetail',
-    components: {
-      default: () => import('@/views/DeviceList.vue'),
-      panel: () => import('@/views/DeviceClient.vue')
-    }
-  },
-  {
     path: '/deploy',
     name: 'Deploy',
     components: {

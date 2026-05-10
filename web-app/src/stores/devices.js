@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { debugLog } from '@/utils/debug'
 
 export const useDeviceStore = defineStore('devices', () => {
   const devices = ref([])
@@ -79,7 +80,7 @@ export const useDeviceStore = defineStore('devices', () => {
     
     if (oldIds !== newIds) {
       devices.value = newList
-      console.log('[Store] Device list updated via broadcast:', idList)
+      debugLog('[Store] Device list updated via broadcast:', idList)
     }
   }
 
@@ -90,7 +91,7 @@ export const useDeviceStore = defineStore('devices', () => {
       devices.value[index].snapshot = `data:image/png;base64,${base64Data}`
       // 触发响应式 (虽然 Vue3 应该能检测到，但重新赋值数组引用更保险)
       devices.value = [...devices.value]
-      console.log(`[Store] Snapshot updated for ${deviceId}, length: ${base64Data.length}`)
+      debugLog(`[Store] Snapshot updated for ${deviceId}, length: ${base64Data.length}`)
     }
   }
 
@@ -116,7 +117,7 @@ export const useDeviceStore = defineStore('devices', () => {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${protocol}//${location.host}/connect_client`
     
-    console.log('[Store] Connecting to global signaling:', url)
+    debugLog('[Store] Connecting to global signaling:', url)
     globalWs = new WebSocket(url)
 
     globalWs.onmessage = (evt) => {
@@ -158,7 +159,7 @@ export const useDeviceStore = defineStore('devices', () => {
       // 增加时间戳防止浏览器缓存不刷新
       devices.value[index].snapshot = url + '?t=' + Date.now()
       devices.value = [...devices.value]
-      console.log(`[Store] Snapshot URL updated for ${deviceId}`)
+      debugLog(`[Store] Snapshot URL updated for ${deviceId}`)
     }
   }
 

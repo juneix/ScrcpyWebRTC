@@ -4,24 +4,23 @@
     <nav class="side-nav" v-if="!isMobile">
       <div class="nav-brand">📱</div>
       <div class="nav-links">
-        <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' || $route.path.startsWith('/device') }">🖥️</router-link>
-        <router-link to="/deploy" class="nav-item" :class="{ active: $route.path === '/deploy' }">🚀</router-link>
+        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage }">🖥️</a>
+        <a href="javascript:void(0)" @click="navigateTo('/deploy')" class="nav-item" :class="{ active: showDeployPage }">🚀</a>
       </div>
     </nav>
 
     <!-- 2. 主内容区域 -->
-    <main class="main-content">
+    <main class="main-content" id="main-layout-content">
       <header class="top-bar" v-if="!isMobile">
         <h1 class="page-title">云虚机矩阵</h1>
         <div class="global-status">系统实时同步中</div>
       </header>
       
       <section class="viewport">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" :key="$route.fullPath" />
-          </transition>
-        </router-view>
+        <transition name="fade" mode="out-in">
+          <DeviceList v-if="!showDeployPage" />
+          <DeployPage v-else />
+        </transition>
       </section>
     </main>
 
@@ -44,7 +43,7 @@
         <div class="resize-handle bottom" @mousedown="startResizing('bottom', $event)"></div>
         <div class="resize-handle left" @mousedown="startResizing('left', $event)"></div>
         <div class="resize-handle right" @mousedown="startResizing('right', $event)"></div>
-        <div class="resize-corner br" @mousedown="startResizing('br', $event)"></div>
+        <div class="resize-corner bottom-right" @mousedown="startResizing('bottom-right', $event)"></div>
       </template>
 
       <!-- 面板内容区 -->
@@ -65,7 +64,7 @@
 
         <div class="panel-main">
            <!-- 渲染 DeviceClient -->
-           <router-view name="panel" :deviceId="deviceStore.activeDeviceId" @recommend-layout="handleRecommendLayout" />
+           <DeviceClient v-if="deviceStore.activeDeviceId" :deviceId="deviceStore.activeDeviceId" @recommend-layout="handleRecommendLayout" />
         </div>
       </div>
 
@@ -79,17 +78,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { useDeviceStore } from '@/stores/devices'
+import DeviceClient from '@/views/DeviceClient.vue'
+import DeviceList from '@/views/DeviceList.vue'
+import DeployPage from '@/views/DeployPage.vue'
 
-const route = useRoute()
-const router = useRouter()
 const deviceStore = useDeviceStore()
 
 const isMobile = ref(window.innerWidth <= 1024)
 const isFloating = ref(false)
 const isResizing = ref(false)
 const userAdjusted = ref(false)
+const showDeployPage = ref(false)
 
 const floatPos = ref({ x: 100, y: 100 })
 const floatSize = ref({ w: 600, h: 800 })
@@ -190,18 +190,44 @@ const updateMedia = () => {
 onMounted(() => {
   deviceStore.fetchDevices(); deviceStore.initSignaling()
   window.addEventListener('resize', updateMedia)
-  if (route.params.deviceId) deviceStore.setActiveDevice(route.params.deviceId)
+  
+  // 处理旧路由的兼容
+  const path = window.location.pathname
+  if (path === '/deploy') {
+    showDeployPage.value = true
+  } else if (path.startsWith('/device/')) {
+    const id = path.replace('/device/', '')
+    if (id) {
+      deviceStore.setActiveDevice(id)
+      window.history.replaceState({}, '', '/')
+    }
+  }
 })
 onUnmounted(() => window.removeEventListener('resize', updateMedia))
 
-watch(() => route.params.deviceId, (newId) => {
-  if (newId) deviceStore.setActiveDevice(newId)
-  else { deviceStore.clearActiveDevice(); isFloating.value = false; userAdjusted.value = false }
+watch(() => deviceStore.activeDeviceId, (newId) => {
+  if (!newId) {
+    isFloating.value = false; userAdjusted.value = false
+  }
 })
 
 function closePanel() {
   deviceStore.clearActiveDevice()
-  router.push('/')
+}
+
+// 导航处理
+window.addEventListener('popstate', () => {
+  showDeployPage.value = window.location.pathname === '/deploy'
+})
+
+function navigateTo(path) {
+  if (path === '/deploy') {
+    showDeployPage.value = true
+    window.history.pushState({}, '', '/deploy')
+  } else {
+    showDeployPage.value = false
+    window.history.pushState({}, '', '/')
+  }
 }
 </script>
 
@@ -282,7 +308,7 @@ body { margin: 0; background: var(--bg-primary); color: #c9d1d9; font-family: -a
 .resize-handle.bottom { bottom: -5px; left: 0; right: 0; height: 10px; cursor: ns-resize; }
 .resize-handle.left { left: -5px; top: 0; bottom: 0; width: 10px; cursor: ew-resize; }
 .resize-handle.right { right: -5px; top: 0; bottom: 0; width: 10px; cursor: ew-resize; }
-.resize-corner.br { position: absolute; right: -5px; bottom: -5px; width: 20px; height: 20px; cursor: nwse-resize; z-index: 101; }
+.resize-corner.bottom-right { position: absolute; right: -5px; bottom: -5px; width: 20px; height: 20px; cursor: nwse-resize; z-index: 101; }
 
 .panel-inner { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-secondary); border-radius: 12px; }
 .panel-top-bar { height: 50px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); cursor: grab; }

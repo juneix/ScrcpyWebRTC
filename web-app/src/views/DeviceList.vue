@@ -7,7 +7,10 @@
       </div>
       
       <div class="header-controls">
-        <button class="deploy-btn" @click="router.push('/deploy')">
+        <button class="deploy-btn" @click="openGlobalSettings" title="全局默认设置" style="background: transparent; border: 1px solid var(--border); color: var(--text-primary);">
+          ⚙️ 全局设置
+        </button>
+        <button class="deploy-btn hide-on-mobile" @click="goToDeploy">
           🚀 部署新设备
         </button>
         <div class="size-control">
@@ -47,9 +50,21 @@
           :key="device.id"
           :device="device"
           @connect="connectDevice"
+          @settings="openSettings"
         />
       </div>
     </main>
+
+    <SettingsModal 
+      v-if="showSettingsModal" 
+      :settings="localSettings" 
+      :is-connected="false"
+      :is-global="!selectedDeviceId"
+      :is-custom="!!selectedDeviceId && hasCustomSettings(selectedDeviceId)"
+      @close="closeSettings" 
+      @save="saveSettings" 
+      @reset="resetSettings"
+    />
   </div>
 </template>
 
@@ -58,12 +73,59 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDeviceStore } from '@/stores/devices'
 import DeviceCard from '@/components/DeviceCard.vue'
+import SettingsModal from '@/components/SettingsModal.vue'
+
+import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceSettings } from '@/utils/settings'
 
 const router = useRouter()
 const deviceStore = useDeviceStore()
 const cardSize = ref(280)
 
 let refreshInterval = null
+const showSettingsModal = ref(false)
+const selectedDeviceId = ref('')
+
+const localSettings = ref(getDeviceSettings(''))
+
+function openGlobalSettings() {
+  selectedDeviceId.value = ''
+  localSettings.value = getDeviceSettings('')
+  showSettingsModal.value = true
+}
+
+function goToDeploy() {
+  window.history.pushState({}, '', '/deploy')
+  window.dispatchEvent(new Event('popstate'))
+}
+
+function openSettings(deviceId) {
+  selectedDeviceId.value = deviceId
+  localSettings.value = getDeviceSettings(deviceId)
+  showSettingsModal.value = true
+}
+
+function closeSettings() {
+  showSettingsModal.value = false
+  selectedDeviceId.value = ''
+}
+
+function saveSettings(newSettings) {
+  localSettings.value = newSettings
+  saveDeviceSettings(selectedDeviceId.value, newSettings)
+  
+  if (selectedDeviceId.value) {
+    connectDevice(selectedDeviceId.value)
+  } else {
+    closeSettings()
+  }
+}
+
+function resetSettings() {
+  if (selectedDeviceId.value) {
+    deleteDeviceSettings(selectedDeviceId.value)
+    closeSettings()
+  }
+}
 
 onMounted(() => {
   deviceStore.fetchDevices()
@@ -77,7 +139,7 @@ onUnmounted(() => {
 })
 
 function connectDevice(deviceId) {
-  router.push(`/device/${deviceId}`)
+  deviceStore.setActiveDevice(deviceId)
 }
 </script>
 
@@ -247,6 +309,10 @@ function connectDevice(deviceId) {
   }
   
   .size-control {
+    display: none !important;
+  }
+
+  .hide-on-mobile {
     display: none !important;
   }
 
