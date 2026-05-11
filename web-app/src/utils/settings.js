@@ -3,7 +3,7 @@ export const defaultSettings = {
   size: 0,
   bitrate: 4,
   bwe: true,
-  minBitrate: 2,
+  minBitrate: 8,
   maxBitrate: 20,
   debug: false
 }

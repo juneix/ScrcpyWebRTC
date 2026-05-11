@@ -20,6 +20,33 @@
 - **网页直连**: 支持所有终端（IOS/Android/Win/Mac/Linux）通过浏览器连接。
 - **摆脱ADB**: 部署后无需通过有线或无线的形式连接adb，并支持将adb转发到网页中直接使用。
 
+## 目录结构
+
+```
+ScrcpyOverWebRTC/
+├── web-app/              # 前端源代码
+├── bin/                  # 信令服务器
+│   ├── linux_amd64/
+│   ├── linux_arm64/
+│   ├── darwin_amd64/
+│   ├── darwin_arm64/
+│   ├── windows_amd64/
+│   └── windows_arm64/
+├── agentd/               # Android Agent
+│   ├── cloudphone-agent-arm64
+│   ├── cloudphone-agent-amd64
+│   ├── scrcpy-server.jar
+│   └── run.sh
+├── android/             # Android 端独立包 (可在Android系统内完整运行)
+│   ├── webrtc-signaling
+│   ├── cloudphone-agent
+│   ├── scrcpy-server.jar
+│   └── setup.sh
+├── start_server.sh      # 启动脚本
+├── build.sh             # 编译打包脚本
+└── README.md
+```
+
 ## 快速开始
 
 ### 1. 启动服务器
@@ -39,35 +66,25 @@ cd agentd
 ./run.sh -id my-phone -signaling ws://<服务器IP>:8443
 ```
 
-#### 3. Docker / Redroid 容器
+#### 3. Android 本地全环境运行 (脱离电脑)
+你可以将包含信令服务器在内的全套环境推送到手机内执行，让手机自身成为服务器：
+1. 推送安卓独立包与静态资源：
+   ```bash
+   adb push android /data/local/tmp/
+   adb push assets /data/local/tmp/android/
+   ```
+2. 在手机中启动：
+   ```bash
+   adb shell sh /data/local/tmp/android/setup.sh
+   ```
+
+#### 4. Docker / Redroid 容器
 Agent 运行在隔离容器内时，需指定宿主机ip, 并在Docker启动参数中增加 `-p 50000:50000/udp`
 ```bash
 ./run.sh -id redroid-01 \
   -signaling ws://<服务器IP>:8443 \
   -external-addr "<宿主机-IP>" \
   -webrtc-port 50000
-```
-
-## 目录结构
-
-```
-ScrcpyOverWebRTC/
-├── web-app/              # 前端源代码
-├── bin/                  # 信令服务器 
-│   ├── linux_amd64/
-│   ├── linux_arm64/
-│   ├── darwin_amd64/
-│   ├── darwin_arm64/
-│   ├── windows_amd64/
-│   └── windows_arm64/
-├── agentd/               # Android Agent
-│   ├── cloudphone-agent-arm64
-│   ├── cloudphone-agent-amd64
-│   ├── scrcpy-server.jar
-│   └── run.sh
-├── start_server.sh      # 启动脚本
-├── build.sh             # 编译打包脚本
-└── README.md
 ```
 
 ## 前端开发 (web-app)

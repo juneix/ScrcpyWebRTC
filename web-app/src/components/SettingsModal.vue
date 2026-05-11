@@ -29,7 +29,7 @@
           <div class="form-group" v-if="localSettings.bwe">
             <label>Min Bitrate (Mbps):</label>
             <input type="number" v-model.number="localSettings.minBitrate" min="1" step="1" />
-            <small class="hint">默认：2 Mbps</small>
+            <small class="hint">默认：8 Mbps</small>
           </div>
 
           <div class="form-group" v-if="localSettings.bwe">

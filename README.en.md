@@ -38,7 +38,19 @@ cd agentd
 ./run.sh -id my-phone -signaling ws://<Server-IP>:8443
 ```
 
-#### 3. Docker / Redroid Container
+#### 3. Run entirely locally on Android (Computer-free)
+You can push the full suite including the signaling server directly to your phone, making the phone its own server:
+1. Push the Android standalone package and static assets:
+   ```bash
+   adb push android /data/local/tmp/
+   adb push assets /data/local/tmp/android/
+   ```
+2. Start services on your phone:
+   ```bash
+   adb shell sh /data/local/tmp/android/setup.sh
+   ```
+
+#### 4. Docker / Redroid Container
 When the Agent is running inside an isolated container, you need to specify the host IP and expose the UDP port in your Docker run command (e.g., `-p 50000:50000/udp`):
 ```bash
 ./run.sh -id redroid-01 \
@@ -52,7 +64,7 @@ When the Agent is running inside an isolated container, you need to specify the 
 ```text
 ScrcpyOverWebRTC/
 ├── web-app/              # Frontend source code
-├── bin/                  # Signaling server 
+├── bin/                  # Signaling server
 │   ├── linux_amd64/
 │   ├── linux_arm64/
 │   ├── darwin_amd64/
@@ -64,6 +76,11 @@ ScrcpyOverWebRTC/
 │   ├── cloudphone-agent-amd64
 │   ├── scrcpy-server.jar
 │   └── run.sh
+├── android/              # Android Standalone Package (Run entirely on Android)
+│   ├── webrtc-signaling
+│   ├── cloudphone-agent
+│   ├── scrcpy-server.jar
+│   └── setup.sh
 ├── start_server.sh      # Startup script
 ├── build.sh             # Compile & package script
 └── README.md
