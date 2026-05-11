@@ -1,5 +1,7 @@
 # Scrcpy over WebRTC (CloudPhone)
 
+中文 | [English](README.en.md)
+
 基于 WebRTC 和 Scrcpy 的高性能、低延迟云手机解决方案，无需客户端，可以通过网页直接连接。
 采用 **Fat Agent (直连模式)** 架构，结合 **硬件级 PTS 透传** 技术，实现媲美原生 Scrcpy 的丝滑体验。
 
