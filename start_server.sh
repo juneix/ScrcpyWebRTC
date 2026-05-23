@@ -10,6 +10,9 @@ if [ "$1" == "v2" ]; then
     UI_VER="v2"
 fi
 
+# 默认全局及虚机连接参数配置（最高 4m, 最低 1m, fps 30, 分辨率 1920）
+export DEFAULT_SETTINGS=${DEFAULT_SETTINGS:-'{"fps":60,"size":1920}'}
+
 BIN_PATH="./bin/${OS}_${ARCH}/webrtc-signaling"
 if [ -f "$BIN_PATH" ]; then
     echo "Starting Signaling Server for $OS/$ARCH using UI: $UI_VER..."

@@ -1,8 +1,8 @@
 <template>
   <div class="device-card" @click="onCardClick">
-    <div class="preview-area">
+    <div class="preview-area" :class="{ 'is-landscape': isLandscape }">
       <!-- 展示快照或占位图 -->
-      <img v-if="device.snapshot" :src="device.snapshot" class="snapshot-img" />
+      <img v-if="device.snapshot" :src="device.snapshot" class="snapshot-img" @load="onImageLoad" />
       <div v-else class="snapshot-placeholder">
         <span class="vm-icon">💻</span>
       </div>
@@ -18,8 +18,22 @@
           {{ statusText }}
         </span>
       </div>
-      <div class="device-meta">
-        <span class="model-name">{{ device.info?.model || 'Android VM' }}</span>
+      <div v-if="device.info?.model" class="device-meta">
+        <span class="model-name">{{ device.info.model }}</span>
+      </div>
+      <div v-if="tags.length > 0" class="device-tags">
+        <span
+          v-for="tag in visibleTags"
+          :key="tag.id"
+          class="device-tag"
+          :style="tagStyle(tag)"
+          :title="tag.name"
+        >
+          {{ tag.name }}
+        </span>
+        <span v-if="hiddenTagCount > 0" class="device-tag more-tag">
+          +{{ hiddenTagCount }}
+        </span>
       </div>
       <!-- 功能菜单按钮 -->
       <button class="menu-btn" @click.stop="toggleMenu" title="更多操作">
@@ -36,6 +50,10 @@
       <button class="menu-item" @click="onSettings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         连接设置
+      </button>
+      <button class="menu-item" @click="onEditTags">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 12v7a1 1 0 0 1-1 1h-7L4 12V5a1 1 0 0 1 1-1h7l8 8z"></path><circle cx="8.5" cy="8.5" r="1.5"></circle></svg>
+        编辑标签
       </button>
       <button class="menu-item danger" @click="onQuitAgent" :disabled="device.status !== 'online'">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v6M12 4.5a6 6 0 11-8 0"/></svg>
@@ -56,12 +74,26 @@ const props = defineProps({
   device: {
     type: Object,
     required: true
+  },
+  tags: {
+    type: Array,
+    default: () => []
   }
 })
 
-const emit = defineEmits(['connect', 'settings'])
+const emit = defineEmits(['connect', 'settings', 'edit-tags'])
 const deviceStore = useDeviceStore()
 const showMenu = ref(false)
+const isLandscape = ref(false)
+
+function onImageLoad(event) {
+  const img = event.target
+  if (img.naturalWidth > img.naturalHeight) {
+    isLandscape.value = true
+  } else {
+    isLandscape.value = false
+  }
+}
 
 const statusClass = computed(() => {
   return props.device.status === 'online' ? 'online' : 'offline'
@@ -70,6 +102,9 @@ const statusClass = computed(() => {
 const statusText = computed(() => {
   return props.device.status === 'online' ? '在线' : '离线'
 })
+
+const visibleTags = computed(() => props.tags.slice(0, 3))
+const hiddenTagCount = computed(() => Math.max(0, props.tags.length - visibleTags.value.length))
 
 function onCardClick() {
   if (!showMenu.value) {
@@ -84,6 +119,19 @@ function toggleMenu() {
 function onSettings() {
   showMenu.value = false
   emit('settings', props.device.id)
+}
+
+function onEditTags() {
+  showMenu.value = false
+  emit('edit-tags', props.device.id)
+}
+
+function tagStyle(tag) {
+  return {
+    color: tag.color,
+    borderColor: `${tag.color}80`,
+    background: `${tag.color}16`
+  }
 }
 
 function onQuitAgent() {
@@ -142,8 +190,20 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 .snapshot-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
+  transition: transform 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+
+/* 横屏时的旋转适配：强制以竖屏在 9:16 容器中显示 */
+.preview-area.is-landscape .snapshot-img {
+  position: absolute;
+  width: 177.78%; /* 宽高对调：宽为容器的高（16/9 ≈ 177.78%） */
+  height: 100%;   /* 高为容器的宽（100%） */
+  top: 0;
+  left: -38.89%;  /* 水平居中偏移：(177.78% - 100%) / 2 = 38.89% */
+  object-fit: contain;
+  transform: rotate(90deg); /* 顺时针旋转 90 度 */
 }
 
 .vm-icon {
@@ -189,6 +249,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
   position: relative;
+  flex-shrink: 0;
 }
 
 .device-main-info {
@@ -234,6 +295,36 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .model-name {
   opacity: 0.7;
+}
+
+.device-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-right: 28px;
+  margin-top: 8px;
+}
+
+.device-tag {
+  max-width: 86px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.more-tag {
+  color: var(--text-secondary);
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* 菜单按钮 */
@@ -319,7 +410,15 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 }
 
 /* 移动端卡片优化 */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
+  .device-card {
+    height: 100%;
+  }
+  .preview-area {
+    aspect-ratio: unset;
+    flex: 1;
+    min-height: 0;
+  }
   .card-footer {
     padding: 8px 10px;
   }
@@ -333,6 +432,16 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   }
   .vm-icon {
     font-size: 32px;
+  }
+  .device-tags {
+    gap: 4px;
+    padding-right: 22px;
+  }
+  .device-tag {
+    max-width: 70px;
+    height: 18px;
+    padding: 0 6px;
+    font-size: 9px;
   }
   .menu-btn {
     opacity: 1;

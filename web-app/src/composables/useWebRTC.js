@@ -12,6 +12,8 @@ export function useWebRTC(deviceId, options = {}) {
   let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]
   let inputChannel = null
   let adbChannel = null
+  let adbSendQueue = []
+  let clipboardChannel = null
   let videoElementGetter = null  // 获取 video 元素的函数
   let videoStream = null
   let audioStream = null
@@ -327,6 +329,12 @@ function handleDeviceMessage(payload) {
     adbChannel = pc.createDataChannel('adb-channel', { ordered: true })
     adbChannel.binaryType = 'arraybuffer' // 必须设置为 arraybuffer 以支持二进制流
     setupAdbChannel(adbChannel)
+
+    // 创建 File 通道 (主动创建)
+    fileChannel = pc.createDataChannel('file-channel', { ordered: true })
+    fileChannel.binaryType = 'arraybuffer'
+    setupFileChannel(fileChannel)
+
     videoStream = new MediaStream()
 
     pc.ontrack = (evt) => {
@@ -398,6 +406,28 @@ function handleDeviceMessage(payload) {
           debugLog('[DataChannel] input-channel CLOSED')
         }
         inputChannel.onerror = (e) => console.error('[DataChannel] Error:', e)
+      } else if (evt.channel.label === 'clipboard-channel') {
+        clipboardChannel = evt.channel
+        clipboardChannel.onopen = () => {
+          debugLog('[DataChannel] clipboard-channel OPEN')
+        }
+        clipboardChannel.onmessage = (evt) => {
+          try {
+            let dataStr = evt.data
+            if (evt.data instanceof ArrayBuffer) {
+              dataStr = new TextDecoder().decode(evt.data)
+            }
+            const msg = JSON.parse(dataStr)
+            if (msg.type === 'clipboard' && clipboardCallback) {
+              clipboardCallback(msg.text)
+            }
+          } catch (e) {
+            console.error('[DataChannel] Failed to parse clipboard msg:', e)
+          }
+        }
+        clipboardChannel.onclose = () => {
+          debugLog('[DataChannel] clipboard-channel CLOSED')
+        }
       }
     }
   }
@@ -610,6 +640,33 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  let clipboardCallback = null
+  function onClipboard(callback) {
+    clipboardCallback = callback
+  }
+
+  function setClipboard(text, paste = false) {
+    if (clipboardChannel && clipboardChannel.readyState === 'open') {
+      clipboardChannel.send(JSON.stringify({
+        type: 'set_clipboard',
+        text,
+        paste
+      }))
+      return true
+    }
+    return false
+  }
+
+  function getClipboard() {
+    if (clipboardChannel && clipboardChannel.readyState === 'open') {
+      clipboardChannel.send(JSON.stringify({
+        type: 'get_clipboard'
+      }))
+      return true
+    }
+    return false
+  }
+
   let screenshotCallback = null
 
   function onScreenshot(callback) {
@@ -625,6 +682,15 @@ function handleDeviceMessage(payload) {
   function setupAdbChannel(channel) {
     channel.onopen = () => {
       debugLog('[ADB] DataChannel OPEN')
+      if (adbSendQueue.length > 0) {
+        debugLog(`[ADB] Flushing ${adbSendQueue.length} queued send packets`)
+        adbSendQueue.forEach(buf => {
+          if (channel.readyState === 'open') {
+            channel.send(buf)
+          }
+        })
+        adbSendQueue = []
+      }
     }
     channel.onmessage = (evt) => {
       // console.log('[ADB] DataChannel Message Received:', evt.data.byteLength, 'bytes')
@@ -639,6 +705,59 @@ function handleDeviceMessage(payload) {
       debugLog('[ADB] DataChannel CLOSED')
     }
     channel.onerror = (e) => console.error('[ADB] DataChannel Error:', e)
+  }
+
+  let fileChannel = null
+  const fileChannelReady = ref(false)
+  let fileChannelCallback = null
+
+  function onFileChannelMessage(callback) {
+    fileChannelCallback = callback
+  }
+
+  function setupFileChannel(channel) {
+    channel.onopen = () => {
+      debugLog('[FileChannel] DataChannel OPEN')
+      fileChannelReady.value = true
+    }
+    channel.onmessage = (evt) => {
+      if (fileChannelCallback) {
+        fileChannelCallback(evt.data)
+      }
+    }
+    channel.onclose = () => {
+      debugLog('[FileChannel] DataChannel CLOSED')
+      fileChannelReady.value = false
+    }
+    channel.onerror = (e) => {
+      console.error('[FileChannel] DataChannel Error:', e)
+      fileChannelReady.value = false
+    }
+  }
+
+  function sendFileChannelCmd(cmd) {
+    if (!fileChannel || fileChannel.readyState !== 'open') {
+      console.warn('[DataChannel] sendFileChannelCmd failed: fileChannel is not open')
+      return false
+    }
+    fileChannel.send(JSON.stringify(cmd))
+    return true
+  }
+
+  function sendFileChannelChunk(arrayBuffer) {
+    if (!fileChannel || fileChannel.readyState !== 'open') {
+      console.warn('[DataChannel] sendFileChannelChunk failed: fileChannel is not open')
+      return false
+    }
+    if (fileChannel.bufferedAmount > 256 * 1024) {
+      return false // 发送缓冲大于 256KB 触发流控挂起
+    }
+    fileChannel.send(arrayBuffer)
+    return true
+  }
+
+  function getFileChannelBufferedAmount() {
+    return fileChannel ? fileChannel.bufferedAmount : 0
   }
 
   let adbDataCallback = null
@@ -659,17 +778,21 @@ function handleDeviceMessage(payload) {
   }
 
   function sendAdbData(data) {
+    let buffer = null
+    if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
+      buffer = data
+    } else if (data && data.buffer instanceof ArrayBuffer) {
+      buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+    } else {
+      console.error('[ADB] Fatal: sendAdbData received non-binary object, blocking send:', data)
+      return
+    }
+
     if (adbChannel && adbChannel.readyState === 'open') {
-      // 严格检查并确保发送二进制数据
-      if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
-        adbChannel.send(data)
-      } else if (data && data.buffer instanceof ArrayBuffer) {
-        // 自动提取底层 ArrayBuffer
-        const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-        adbChannel.send(buffer)
-      } else {
-        console.error('[ADB] Fatal: sendAdbData received non-binary object, blocking send:', data)
-      }
+      adbChannel.send(buffer)
+    } else {
+      debugLog('[ADB] DataChannel not open yet, buffering send packet:', buffer.byteLength || buffer.length || 0)
+      adbSendQueue.push(buffer)
     }
   }
 
@@ -684,7 +807,13 @@ function handleDeviceMessage(payload) {
       ws.close()
       ws = null
     }
+    if (fileChannel) {
+      try { fileChannel.close() } catch(e) {}
+      fileChannel = null
+    }
+    fileChannelReady.value = false
     status.value = 'disconnected'
+    adbSendQueue = []
   }
 
   onUnmounted(() => {
@@ -694,6 +823,37 @@ function handleDeviceMessage(payload) {
   // 设置获取视频元素的函数 (由组件调用)
   function setVideoGetter(getter) {
     videoElementGetter = getter
+  }
+
+  function sendInjectText(text) {
+    if (!inputChannel || inputChannel.readyState !== 'open') {
+      console.warn('[DataChannel] sendInjectText failed: inputChannel is not open')
+      return false
+    }
+    console.log('[DataChannel] Sending inject_text:', text)
+    const msg = JSON.stringify({
+      type: 'inject_text',
+      text
+    })
+    inputChannel.send(msg)
+    return true
+  }
+
+  function sendInjectKeycode(action, keycode, repeat = 0, meta = 0) {
+    if (!inputChannel || inputChannel.readyState !== 'open') {
+      console.warn('[DataChannel] sendInjectKeycode failed: inputChannel is not open')
+      return false
+    }
+    console.log('[DataChannel] Sending inject_keycode:', { action, keycode, repeat, meta })
+    const msg = JSON.stringify({
+      type: 'inject_keycode',
+      action,
+      keycode,
+      repeat,
+      meta
+    })
+    inputChannel.send(msg)
+    return true
   }
 
   return {
@@ -713,6 +873,16 @@ function handleDeviceMessage(payload) {
     getVideoStats,
     resetStats,
     setAudioMuted,
-    toggleAudioMuted
+    toggleAudioMuted,
+    onClipboard,
+    setClipboard,
+    getClipboard,
+    sendInjectText,
+    sendInjectKeycode,
+    fileChannelReady,
+    onFileChannelMessage,
+    sendFileChannelCmd,
+    sendFileChannelChunk,
+    getFileChannelBufferedAmount
   }
 }

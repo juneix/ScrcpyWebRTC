@@ -29,8 +29,22 @@
           @touchend.prevent="onTouchEnd"
           @touchcancel.prevent="onTouchEnd"
           @loadedmetadata="onVideoLoaded"
-          @resize="onVideoResize"
         />
+
+        <textarea
+          ref="hiddenInput"
+          class="hidden-keyboard-input"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          @input="onKeyboardInput"
+          @keydown="onKeyboardKeyDown"
+          @keyup="onKeyboardKeyUp"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
+        ></textarea>
+
 
         <!-- 视频流状态面板 (左上角) -->
         <div v-if="videoStats" class="stats-badge">
@@ -102,7 +116,7 @@
               <svg v-else class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15 9a5 5 0 0 1 0 6"></path><path d="M17.7 6.3a9 9 0 0 1 0 11.4"></path></svg>
               {{ pageAudioMuted ? '取消静音' : '页面静音' }}
             </button>
-            <button class="fab-item" @click="showConsole = !showConsole; showMobileMenu=false">
+            <button class="fab-item" @click="showConsole = !showConsole; if(showConsole) activeTab = 'shell'; showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> 终端
             </button>
             <button class="fab-item" @click="keymapStore.setEditMode(true); showMobileMenu=false">
@@ -115,6 +129,16 @@
             </button>
             <button class="fab-item" @click="showSettingsModal = true; showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 设置
+            </button>
+            <button class="fab-item" @click="sendClipboardToDevice(); showMobileMenu=false">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg> 送剪贴板
+            </button>
+            <button class="fab-item" @click="getClipboardFromDevice(); showMobileMenu=false">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                <path d="M12 11v6M9 14l3 3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+              </svg> 收剪贴板
             </button>
             
             <div class="fab-divider" v-if="customButtons.length > 0"></div>
@@ -171,7 +195,7 @@
           <svg v-else class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15 9a5 5 0 0 1 0 6"></path><path d="M17.7 6.3a9 9 0 0 1 0 11.4"></path></svg>
           <span class="btn-text">{{ pageAudioMuted ? '取消静音' : '静音' }}</span>
         </button>
-        <button class="sidebar-btn" @click="showConsole = !showConsole" title="控制台">
+        <button class="sidebar-btn" :class="{ active: showConsole && activeTab === 'shell' }" @click="showConsole = !showConsole; if(showConsole) activeTab = 'shell'" title="控制台">
           <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
           <span class="btn-text">终端</span>
         </button>
@@ -183,6 +207,18 @@
           <svg v-if="keymapStore.showKeyHints" class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <svg v-else class="icon" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
           <span class="btn-text">提示</span>
+        </button>
+        <button class="sidebar-btn" @click="sendClipboardToDevice" title="发送剪切板到设备">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          <span class="btn-text">送剪贴板</span>
+        </button>
+        <button class="sidebar-btn" @click="getClipboardFromDevice" title="获取设备剪切板到本地">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            <path d="M12 11v6M9 14l3 3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+          </svg>
+          <span class="btn-text">收剪贴板</span>
         </button>
       </div>
       
@@ -263,6 +299,7 @@
             <p>建立 P2P 隧道并开启原生 ADB Shell</p>
           </div>
         </div>
+
       </div>
     </Teleport>
 
@@ -288,6 +325,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { debugLog, debugWarn } from '@/utils/debug'
 import { useDeviceStore } from '@/stores/devices'
 import { useWebRTC } from '@/composables/useWebRTC'
 import { useAdb } from '@/composables/useAdb'
@@ -316,8 +354,10 @@ const goBackToList = () => {
 }
 
 const videoElement = ref(null)
+const hiddenInput = ref(null)
 const containerRef = ref(null)
 const isFullscreen = ref(false)
+let lastSentClipboardText = ''
 const showScreenshot = ref(false)
 const screenshotData = ref(null)
 const showSettingsModal = ref(false)
@@ -370,6 +410,11 @@ function resetSettings() {
 // 控制台状态
 const showConsole = ref(false)
 const inputCmd = ref('')
+
+function goToFileManager() {
+  window.history.pushState({}, '', '/files')
+  window.dispatchEvent(new Event('popstate'))
+}
 const consoleLogs = ref([])
 const consoleRef = ref(null)
 const adbTermContainer = ref(null)
@@ -454,6 +499,7 @@ const videoStats = ref(null)
 let statsInterval = null
 
 let webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+deviceStore.setActiveWebRTC(webrtc)
 const { isAdbConnected, initAdb, closeAdb } = useAdb(webrtc)
 
 const keymapStore = useKeymapStore()
@@ -467,10 +513,29 @@ watch(() => keymapStore.activeProfile, (newProfile) => {
 }, { immediate: true, deep: true })
 
 function onGlobalKeyDown(e) {
+  debugLog('[GlobalKey] KeyDown. target:', e.target.tagName, 'activeElement:', document.activeElement ? document.activeElement.tagName : 'none', 'key:', e.key)
   if (keymapStore.isEditMode) return;
   const tag = e.target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   if (!videoNaturalSize.value.width) return;
+
+  // 快捷键粘贴：Ctrl+V 或 Cmd+V
+  const isPasteShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v';
+  if (isPasteShortcut) {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(text => {
+        if (text) {
+          lastSentClipboardText = text
+          webrtc.setClipboard(text, true) // 发送并立即在设备端执行粘贴
+          debugLog('[Clipboard] Shortcut paste triggered & sent: ' + text)
+        }
+      }).catch(err => {
+        debugLog('[Clipboard] Failed to read clipboard on shortcut paste: ' + err)
+      })
+    }
+    e.preventDefault();
+    return;
+  }
 
   if (keymapEngine.handleKeyEvent(e, true, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
     e.preventDefault();
@@ -521,6 +586,7 @@ watch(currentId, (newId) => {
     localSettings.value = getDeviceSettings(newId)
     pageAudioMuted.value = Boolean(localSettings.value.pageAudioMuted)
     webrtc = useWebRTC(newId, scrcpyOptions.value)
+    deviceStore.setActiveWebRTC(webrtc)
     setupWebRTC()
   }
 })
@@ -546,6 +612,25 @@ function setupWebRTC() {
     scrollToBottom()
   })
 
+  // 设置剪切板回调
+  webrtc.onClipboard((text) => {
+    if (text === lastSentClipboardText) {
+      return
+    }
+    lastSentClipboardText = text // 更新缓存，防止回传环路
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        debugLog('[Clipboard] Auto synced from device')
+      }).catch(err => {
+        debugWarn('[Clipboard] Failed to auto sync to local:', err)
+        alert('收到设备剪切板内容 (点击确定复制)：\n' + text)
+        // 回退方案：如果自动写入失败，通过 alert 弹出让用户看到
+      })
+    } else {
+      alert('收到设备剪切板内容：\n' + text)
+    }
+  })
+
   // 启动视频流统计轮询
   videoStats.value = null
   webrtc.resetStats()
@@ -560,6 +645,20 @@ const handlePopState = (e) => {
   // 当用户按下物理返回键，或者浏览器后退时
   // 阻止默认行为，而是断开连接
   deviceStore.clearActiveDevice()
+}
+
+function onWindowFocus() {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(text => {
+      if (text && text !== lastSentClipboardText) {
+        lastSentClipboardText = text
+        webrtc.setClipboard(text, false) // 仅静默同步到设备缓存，不自动执行粘贴动作
+        debugLog('[Clipboard] Auto synced local clipboard to device')
+      }
+    }).catch(() => {
+      // 静默失败，不打扰用户
+    })
+  }
 }
 
 onMounted(() => {
@@ -578,11 +677,14 @@ onMounted(() => {
   layoutInterval = setInterval(checkAndRecommendLayout, 2000)
   // 监听窗口大小变化
   window.addEventListener('resize', updateMobileState)
+  // 监听窗口焦点变化实现剪切板自动同步
+  window.addEventListener('focus', onWindowFocus)
 })
 
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState)
   webrtc.disconnect()
+  deviceStore.setActiveWebRTC(null)
   closeAdb()
   document.removeEventListener('keydown', onGlobalKeyDown)
   document.removeEventListener('keyup', onGlobalKeyUp)
@@ -590,7 +692,43 @@ onUnmounted(() => {
   if (layoutInterval) clearInterval(layoutInterval)
   if (statsInterval) clearInterval(statsInterval)
   window.removeEventListener('resize', updateMobileState)
+  window.removeEventListener('focus', onWindowFocus)
 })
+
+function sendClipboardToDevice() {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(text => {
+      if (text) {
+        lastSentClipboardText = text
+        const ok = webrtc.setClipboard(text, true)
+        if (ok) debugLog('[Clipboard] Sent to device')
+      } else {
+        alert('本地剪切板为空')
+      }
+    }).catch(err => {
+      const text = prompt('请输入要发送到设备的剪切板内容：', lastSentClipboardText)
+      if (text) {
+        lastSentClipboardText = text
+        webrtc.setClipboard(text, true)
+      }
+    })
+  } else {
+    const text = prompt('请输入要发送到设备的剪切板内容：', lastSentClipboardText)
+    if (text) {
+      lastSentClipboardText = text
+      webrtc.setClipboard(text, true)
+    }
+  }
+}
+
+function getClipboardFromDevice() {
+  const ok = webrtc.getClipboard()
+  if (ok) {
+    debugLog('[Clipboard] Requested clipboard from device')
+  } else {
+    debugWarn('[Clipboard] Failed to request clipboard from device')
+  }
+}
 
 const statusText = computed(() => {
   const map = {
@@ -733,11 +871,126 @@ function quitAgent() {
   }
 }
 
+const CONTROL_KEY_MAP = {
+  'Enter': 66,
+  'Backspace': 67,
+  'Delete': 112,
+  'Tab': 61,
+  'Escape': 111,
+  'ArrowUp': 19,
+  'ArrowDown': 20,
+  'ArrowLeft': 21,
+  'ArrowRight': 22,
+  'Space': 62,
+  ' ': 62
+}
+
+function onKeyboardKeyDown(e) {
+  debugLog('[Keyboard] KeyDown:', e.key, e.code, 'isComposing:', e.isComposing)
+  if (e.isComposing) return
+  if (keymapStore.isEditMode) return
+  if (!videoNaturalSize.value.width) return
+
+  // 1. 尝试触发按键映射 (Keymapping)
+  if (keymapEngine.handleKeyEvent(e, true, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
+    debugLog('[Keyboard] Blocked by Keymapping:', e.key)
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+
+  // 2. 快捷键粘贴：Ctrl+V 或 Cmd+V (由于焦点可能在此处，同样拦截)
+  const isPasteShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v'
+  if (isPasteShortcut) {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(text => {
+        if (text) {
+          lastSentClipboardText = text
+          webrtc.setClipboard(text, true)
+          debugLog('[Clipboard] Hidden input shortcut paste: ' + text)
+        }
+      }).catch(err => {
+        debugLog('[Clipboard] Failed to read clipboard on hidden input shortcut paste: ' + err)
+      })
+    }
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+
+  // 3. 处理控制键 (Inject Keycode)
+  const androidCode = CONTROL_KEY_MAP[e.key]
+  if (androidCode !== undefined) {
+    debugLog('[Keyboard] Injecting keycode DOWN:', androidCode, e.key)
+    webrtc.sendInjectKeycode(0, androidCode) // Action Down
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
+function onKeyboardKeyUp(e) {
+  debugLog('[Keyboard] KeyUp:', e.key, e.code, 'isComposing:', e.isComposing)
+  if (e.isComposing) return
+  if (keymapStore.isEditMode) return
+  if (!videoNaturalSize.value.width) return
+
+  if (keymapEngine.handleKeyEvent(e, false, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+
+  const androidCode = CONTROL_KEY_MAP[e.key]
+  if (androidCode !== undefined) {
+    debugLog('[Keyboard] Injecting keycode UP:', androidCode, e.key)
+    webrtc.sendInjectKeycode(1, androidCode) // Action Up
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
+const isComposingText = ref(false)
+
+function onCompositionStart(e) {
+  isComposingText.value = true
+  debugLog('[Keyboard] IME Composition started')
+}
+
+function onCompositionEnd(e) {
+  isComposingText.value = false
+  debugLog('[Keyboard] IME Composition ended. data:', e.data)
+  if (e.data) {
+    webrtc.sendInjectText(e.data)
+  }
+  if (hiddenInput.value) {
+    hiddenInput.value.value = ''
+  }
+}
+
+function onKeyboardInput(e) {
+  if (isComposingText.value) {
+    debugLog('[Keyboard] input ignored (IME composing in progress)')
+    return
+  }
+  const text = e.target.value
+  debugLog('[Keyboard] Input event text (direct):', text)
+  if (text.length > 0) {
+    webrtc.sendInjectText(text)
+    // 立即清空输入框
+    e.target.value = ''
+  }
+}
+
 let mouseDown = false
 function onMouseDown(e) { 
   const coord = rotateCoords(e.clientX, e.clientY)
   mouseDown = true; 
   webrtc.sendTouch(0, e.clientX, e.clientY, -1, coord)
+  if (hiddenInput.value) {
+    hiddenInput.value.focus()
+    debugLog('[Keyboard] focused hidden input element. activeElement:', document.activeElement ? document.activeElement.tagName : 'none')
+  }
+  e.preventDefault() // 阻止默认行为，防止焦点被 video 夺走！
 }
 function onMouseMove(e) { 
   if (mouseDown) {
@@ -782,6 +1035,24 @@ function onTouchEnd(e) {
 </script>
 
 <style scoped>
+.hidden-keyboard-input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  z-index: 10;
+  overflow: hidden;
+}
+
 .device-panel-view {
   height: 100%;
   display: flex;
@@ -1235,4 +1506,8 @@ function onTouchEnd(e) {
     z-index: 50;
   }
 }
+
+
+
+
 </style>

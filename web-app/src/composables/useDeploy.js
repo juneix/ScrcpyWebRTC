@@ -1,9 +1,6 @@
 import { ref } from 'vue'
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb'
 import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb'
-import AdbWebCredentialStore from '@yume-chan/adb-credential-web'
-
-const credentialStore = new AdbWebCredentialStore('cloudphone-web')
 
 export function useDeploy() {
   const isDeploying = ref(false)
@@ -52,6 +49,9 @@ export function useDeploy() {
     let transport = null
 
     try {
+      const AdbWebCredentialStore = (await import('@yume-chan/adb-credential-web')).default
+      const credentialStore = new AdbWebCredentialStore('cloudphone-web')
+
       // 步骤 1: 连接 USB 设备
       log('请求 USB 设备连接...')
       deployStatus.value = '请选择 USB 设备...'

@@ -1,13 +1,12 @@
 import { ref } from 'vue'
 import { Adb, AdbDaemonTransport, AdbPacket, AdbPacketSerializeStream } from '@yume-chan/adb'
-import AdbWebCredentialStore from '@yume-chan/adb-credential-web'
 import { PushReadableStream, Consumable, StructDeserializeStream, pipeFrom } from '@yume-chan/stream-extra'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import { debugLog } from '@/utils/debug'
 
-const credentialStore = new AdbWebCredentialStore('cloudphone-adb')
+
 
 /**
  * 通过 WebRTC DataChannel 建立 ADB 连接，使用 @yume-chan/adb 处理认证和协议
@@ -47,7 +46,7 @@ export function useAdb(webrtc) {
     const writable = pipeFrom(
       new Consumable.WritableStream({
         write(chunk) {
-          // chunk 是 Uint8Array，发送到 WebRTC DataChannel
+          // chunk 是 Uint8Array，发送 to WebRTC DataChannel
           webrtc.sendAdbData(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength))
         },
       }),
@@ -81,6 +80,10 @@ export function useAdb(webrtc) {
     term.writeln('\x1b[33m[ADB] 正在通过 WebRTC 隧道建立连接...\x1b[0m')
 
     try {
+      // 动态加载 CredentialStore 以确保 SubtleCrypto 垫片已完全就绪
+      const AdbWebCredentialStore = (await import('@yume-chan/adb-credential-web')).default
+      const credentialStore = new AdbWebCredentialStore('cloudphone-adb')
+
       // 1. 创建基于 DataChannel 的连接
       const connection = createConnectionFromDataChannel()
 
@@ -140,21 +143,22 @@ export function useAdb(webrtc) {
     }
   }
 
-  function closeAdb() {
+  async function closeAdb() {
     debugLog('[ADB] Closing session')
+    isAdbConnected.value = false
 
     if (shellSocket) {
-      try { shellSocket.close() } catch (e) {}
+      try { await shellSocket.close() } catch (e) {}
       shellSocket = null
     }
 
     if (adb) {
-      try { adb.close() } catch (e) {}
+      try { await adb.close() } catch (e) {}
       adb = null
     }
 
     if (transport) {
-      try { transport.close() } catch (e) {}
+      try { await transport.close() } catch (e) {}
       transport = null
     }
 
@@ -167,8 +171,6 @@ export function useAdb(webrtc) {
       fitAddon = null
       try { t.dispose() } catch (e) {}
     }
-
-    isAdbConnected.value = false
   }
 
   return { isAdbConnected, initAdb, closeAdb }

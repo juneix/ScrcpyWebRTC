@@ -7,7 +7,7 @@ export const defaultSettings = {
   maxBitrate: 20,
   audio: false,
   audioGain: 1,
-  audioSource: 'playback',
+  audioSource: 'output',
   audioDup: true,
   audioLowLatency: false,
   pageAudioMuted: false,
@@ -26,6 +26,7 @@ function parseSettings(parsed) {
   if (!hasAudioDup && parsed.audioSource === 'output') parsed.audioSource = defaultSettings.audioSource
   if (parsed.audioDup === undefined) parsed.audioDup = defaultSettings.audioDup
   if (parsed.pageAudioMuted === undefined) parsed.pageAudioMuted = defaultSettings.pageAudioMuted
+  if (parsed.debug === undefined) parsed.debug = defaultSettings.debug
   return parsed
 }
 

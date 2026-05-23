@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef, markRaw } from 'vue'
 import { debugLog } from '@/utils/debug'
 
 export const useDeviceStore = defineStore('devices', () => {
@@ -96,6 +96,7 @@ export const useDeviceStore = defineStore('devices', () => {
   }
 
   const activeDeviceId = ref(null)
+  const activeWebRTC = shallowRef(null)
 
   const activeDevice = computed(() => 
     devices.value.find(d => d.id === activeDeviceId.value)
@@ -105,8 +106,13 @@ export const useDeviceStore = defineStore('devices', () => {
     activeDeviceId.value = id
   }
 
+  function setActiveWebRTC(webrtcInstance) {
+    activeWebRTC.value = webrtcInstance ? markRaw(webrtcInstance) : null
+  }
+
   function clearActiveDevice() {
     activeDeviceId.value = null
+    activeWebRTC.value = null
   }
 
   let globalWs = null
@@ -168,6 +174,7 @@ export const useDeviceStore = defineStore('devices', () => {
     loading,
     error,
     activeDeviceId,
+    activeWebRTC,
     activeDevice,
     onlineDevices,
     fetchDevices,
@@ -178,6 +185,7 @@ export const useDeviceStore = defineStore('devices', () => {
     initSignaling, // 导出
     quitAgent,
     setActiveDevice,
+    setActiveWebRTC,
     clearActiveDevice
   }
 })
