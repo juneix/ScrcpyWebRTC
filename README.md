@@ -57,14 +57,16 @@ ScrcpyOverWebRTC/
 ```
 *Windows 用户请进入 `bin/` 目录运行 `run.bat`*
 
-启动后在浏览器访问：`http://localhost:8443`
+启动后在浏览器访问：`http://localhost:8443`, 其它设备访问打开：`http://<服务器IP>:8443`  
+> v0.1.8后增加账户和租户管理。默认账号admin, 密码admin123
 
 ### 2. 部署 Agent 到 Android
-
+先用adb连接上手机
 ```bash
 cd agentd
 ./run.sh -id my-phone -signaling ws://<服务器IP>:8443
 ```
+> 机器未安装adb, 也可以通过网页ADB部署
 
 #### 3. Android 本地全环境运行 (脱离电脑)
 你可以将包含信令服务器在内的全套环境推送到手机内执行，让手机自身成为服务器：
