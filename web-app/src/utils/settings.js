@@ -11,7 +11,12 @@ export const defaultSettings = {
   audioDup: true,
   audioLowLatency: false,
   pageAudioMuted: false,
-  debug: false
+  debug: false,
+  snapshotInterval: 10,
+  powerOff: false,
+  connectionPath: 'auto',
+  ipPreference: 'auto',
+  showStats: true
 }
 
 function parseSettings(parsed) {
@@ -27,6 +32,11 @@ function parseSettings(parsed) {
   if (parsed.audioDup === undefined) parsed.audioDup = defaultSettings.audioDup
   if (parsed.pageAudioMuted === undefined) parsed.pageAudioMuted = defaultSettings.pageAudioMuted
   if (parsed.debug === undefined) parsed.debug = defaultSettings.debug
+  if (parsed.snapshotInterval === undefined) parsed.snapshotInterval = defaultSettings.snapshotInterval
+  if (parsed.powerOff === undefined) parsed.powerOff = defaultSettings.powerOff
+  if (parsed.connectionPath === undefined) parsed.connectionPath = defaultSettings.connectionPath
+  if (parsed.ipPreference === undefined) parsed.ipPreference = defaultSettings.ipPreference
+  if (parsed.showStats === undefined) parsed.showStats = defaultSettings.showStats
   return parsed
 }
 
@@ -57,8 +67,16 @@ export function getDeviceSettings(deviceId) {
 export function saveDeviceSettings(deviceId, newSettings) {
   if (!deviceId) {
     localStorage.setItem('cloudphone_settings', JSON.stringify(newSettings))
+    fetch('/api/default_settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newSettings)
+    }).catch(err => console.warn('Failed to sync global settings to server:', err))
   } else {
     localStorage.setItem(`cloudphone_settings_${deviceId}`, JSON.stringify(newSettings))
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cloudphone-settings-updated', { detail: { deviceId } }))
   }
 }
 

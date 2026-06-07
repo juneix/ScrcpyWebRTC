@@ -26,13 +26,30 @@ export function useWebRTC(deviceId, options = {}) {
   const DEVICE_W = ref(1080)
   const DEVICE_H = ref(1920)
 
+  function getOption(key, def) {
+    try {
+      const devStored = localStorage.getItem(`cloudphone_settings_${deviceId}`)
+      if (devStored) {
+        const val = JSON.parse(devStored)[key]
+        if (val !== undefined) return val
+      }
+      const globalStored = localStorage.getItem('cloudphone_settings')
+      if (globalStored) {
+        const val = JSON.parse(globalStored)[key]
+        if (val !== undefined) return val
+      }
+    } catch (e) {}
+    return def
+  }
+
   function connect() {
     status.value = 'connecting'
     error.value = null
 
     const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const token = localStorage.getItem('auth_token') || ''
     // 如果在开发模式（端口 3000），使用当前 host，依靠 Vite 代理
-    const wsUrl = `${wsProtocol}//${location.host}/connect_client`
+    const wsUrl = `${wsProtocol}//${location.host}/connect_client?token=${encodeURIComponent(token)}`
     
     debugLog('[Signaling] Connecting to:', wsUrl)
     ws = new WebSocket(wsUrl)
@@ -79,8 +96,11 @@ export function useWebRTC(deviceId, options = {}) {
           iceServers = msg.ice_servers
           debugLog('[WebRTC] ICE Servers updated from config:', iceServers)
         }
-        // 发送 request-offer 请求
-        const offerPayload = { type: 'request-offer' }
+        // 发送 request-offer 请求，附加 IP 协议偏好设置以通知 Agent 动态调整网络栈
+        const offerPayload = { 
+          type: 'request-offer',
+          ip_preference: getOption('ipPreference', 'auto')
+        }
         if (Object.keys(options).length > 0) {
           offerPayload.scrcpy_options = options
         }
@@ -117,9 +137,10 @@ function handleDeviceMessage(payload) {
     case 'offer':
       debugLog('[WebRTC] Received offer, length:', payload.sdp.length)
       createPeerConnection()
+      const filteredOfferSdp = filterSDPCandidates(payload.sdp)
       pc.setRemoteDescription(new RTCSessionDescription({
         type: 'offer',
-        sdp: payload.sdp
+        sdp: filteredOfferSdp
       }))
         .then(() => pc.createAnswer())
         .then(answer => {
@@ -139,43 +160,55 @@ function handleDeviceMessage(payload) {
         })
         .then(() => {
           // 等待 ICE 收集完成
-          if (pc.iceGatheringState === 'complete') {
+          let answerSent = false
+          const doSend = () => {
+            if (answerSent) return
+            answerSent = true
             sendAnswer()
-          } else {
-              const checkIce = () => {
-                if (pc.iceGatheringState === 'complete') {
-                  pc.removeEventListener('icegatheringstatechange', checkIce)
-                  sendAnswer()
-                }
-              }
-              pc.addEventListener('icegatheringstatechange', checkIce)
-              // 设置超时，防止等待过久
-              setTimeout(() => {
-                pc.removeEventListener('icegatheringstatechange', checkIce)
-                if (status.value === 'connecting_webrtc') {
-                  sendAnswer()
-                }
-              }, 2000)
-            }
-            status.value = 'connecting_webrtc'
-          })
-          .catch(e => {
-            error.value = 'SDP error: ' + e.message
-            console.error('SDP error:', e)
-          })
-        break
+          }
 
-      case 'ice-candidate':
-        if (pc && payload.candidate) {
-          debugLog('[WebRTC] Received remote ICE candidate')
+          if (pc.iceGatheringState === 'complete') {
+            doSend()
+          } else {
+            let timeoutId = null
+            const checkIce = () => {
+              if (pc.iceGatheringState === 'complete') {
+                if (timeoutId) clearTimeout(timeoutId)
+                pc.removeEventListener('icegatheringstatechange', checkIce)
+                doSend()
+              }
+            }
+            pc.addEventListener('icegatheringstatechange', checkIce)
+            // 设置超时，防止等待过久
+            timeoutId = setTimeout(() => {
+              pc.removeEventListener('icegatheringstatechange', checkIce)
+              doSend()
+            }, 2000)
+          }
+          status.value = 'connecting_webrtc'
+        })
+        .catch(e => {
+          error.value = 'SDP error: ' + e.message
+          console.error('SDP error:', e)
+        })
+      break
+
+    case 'ice-candidate':
+      if (pc && payload.candidate) {
+        const candStr = payload.candidate.candidate
+        if (shouldKeepCandidate(candStr)) {
+          debugLog('[WebRTC] Received remote ICE candidate (accepted):', candStr)
           pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
             .catch(e => console.warn('ICE error:', e))
+        } else {
+          debugLog('[WebRTC] Received remote ICE candidate (filtered out):', candStr)
         }
-        break
+      }
+      break
 
-      case 'command_result':
-        handleCommandResult(payload)
-        break
+    case 'command_result':
+      handleCommandResult(payload)
+      break
     }
   }
 
@@ -203,12 +236,25 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  function filterSDPCandidates(sdp) {
+    if (!sdp) return sdp
+    const lines = sdp.split('\r\n')
+    const filteredLines = lines.filter(line => {
+      if (line.startsWith('a=candidate:')) {
+        return shouldKeepCandidate(line)
+      }
+      return true
+    })
+    return filteredLines.join('\r\n')
+  }
+
   function sendAnswer() {
     if (!pc || !pc.localDescription) return
     debugLog('[WebRTC] Sending answer')
+    const filteredSdp = filterSDPCandidates(pc.localDescription.sdp)
     sendForward({
       type: 'answer',
-      sdp: pc.localDescription.sdp
+      sdp: filteredSdp
     })
   }
 
@@ -317,12 +363,55 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  function shouldKeepCandidate(candidateStr) {
+    if (!candidateStr) return false
+
+    // 1. 直连与中转过滤
+    const isRelay = candidateStr.indexOf('typ relay') !== -1
+    const pathPref = getOption('connectionPath', 'auto')
+    if (pathPref === 'relay' && !isRelay) {
+      return false // 仅中转模式，丢弃非中转 Candidate
+    }
+    if (pathPref === 'direct' && isRelay) {
+      return false // 仅直连模式，丢弃中转 Candidate
+    }
+
+    // 2. 鲁棒的 IPv4 与 IPv6 过滤（不依赖固定的 parts[4] 索引偏移）
+    let isIPv6 = false
+    let isIPv4 = false
+    const parts = candidateStr.trim().split(/\s+/)
+    for (const part of parts) {
+      if (part.startsWith('candidate:') || part.startsWith('a=candidate:')) {
+        continue
+      }
+      if (part.split(':').length >= 3) {
+        isIPv6 = true
+        break
+      }
+      if (part.split('.').length === 4) {
+        isIPv4 = true
+        break
+      }
+    }
+
+    const ipPref = getOption('ipPreference', 'auto')
+    if (ipPref === 'ipv4' && isIPv6) {
+      return false // 强制 IPv4，丢弃 IPv6 Candidate
+    }
+    if (ipPref === 'ipv6' && isIPv4) {
+      return false // 强制 IPv6，丢弃 IPv4 Candidate
+    }
+    return true
+  }
+
   function createPeerConnection() {
     if (pc) return
 
-    debugLog('[WebRTC] Creating RTCPeerConnection with servers:', iceServers)
+    const iceTransportPolicy = getOption('connectionPath', 'auto') === 'relay' ? 'relay' : 'all'
+    debugLog('[WebRTC] Creating RTCPeerConnection with servers:', iceServers, 'policy:', iceTransportPolicy)
     pc = new RTCPeerConnection({
-      iceServers: iceServers
+      iceServers: iceServers,
+      iceTransportPolicy: iceTransportPolicy
     })
 
     // 创建 ADB 通道 (主动创建)
@@ -362,14 +451,20 @@ function handleDeviceMessage(payload) {
 
     pc.onicecandidate = (evt) => {
       if (evt.candidate) {
-        sendForward({
-          type: 'ice-candidate',
-          candidate: {
-            candidate: evt.candidate.candidate,
-            sdpMid: evt.candidate.sdpMid,
-            sdpMLineIndex: evt.candidate.sdpMLineIndex
-          }
-        })
+        const candStr = evt.candidate.candidate
+        if (shouldKeepCandidate(candStr)) {
+          debugLog('[WebRTC] Sending local ICE candidate (accepted):', candStr)
+          sendForward({
+            type: 'ice-candidate',
+            candidate: {
+              candidate: evt.candidate.candidate,
+              sdpMid: evt.candidate.sdpMid,
+              sdpMLineIndex: evt.candidate.sdpMLineIndex
+            }
+          })
+        } else {
+          debugLog('[WebRTC] Sending local ICE candidate (filtered out):', candStr)
+        }
       }
     }
 
@@ -419,7 +514,11 @@ function handleDeviceMessage(payload) {
             }
             const msg = JSON.parse(dataStr)
             if (msg.type === 'clipboard' && clipboardCallback) {
-              clipboardCallback(msg.text)
+              clipboardCallback({
+                text: msg.text,
+                source: msg.source || 'device',
+                originClientId: msg.origin_client_id ?? null
+              })
             }
           } catch (e) {
             console.error('[DataChannel] Failed to parse clipboard msg:', e)
@@ -442,11 +541,40 @@ function handleDeviceMessage(payload) {
     try {
       const stats = await pc.getStats()
       let currentRtt = 0
+      let activePair = null
       
-      // First pass to find RTT from candidate pair
+      // First pass to find RTT and active candidate pair
       for (const report of stats.values()) {
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          activePair = report
           currentRtt = (report.currentRoundTripTime || 0) * 1000
+          break
+        }
+      }
+
+      if (!activePair) {
+        for (const report of stats.values()) {
+          if (report.type === 'candidate-pair' && (report.nominated || report.selected)) {
+            activePair = report
+            if (report.currentRoundTripTime !== undefined) {
+              currentRtt = report.currentRoundTripTime * 1000
+            }
+            break
+          }
+        }
+      }
+
+      let connectionType = 'UDP p2p'
+      if (activePair) {
+        const localCand = stats.get(activePair.localCandidateId)
+        if (localCand) {
+          const proto = (localCand.protocol || 'udp').toUpperCase()
+          const candType = localCand.candidateType // 'host', 'srflx', 'prflx', 'relay'
+          if (candType === 'relay') {
+            connectionType = `${proto} relay`
+          } else {
+            connectionType = `${proto} p2p`
+          }
         }
       }
 
@@ -502,7 +630,7 @@ function handleDeviceMessage(payload) {
             framesDecoded: report.framesDecoded
           }
 
-          return { fps, bitrate, jbDelay, e2eDelay, rtt: currentRtt.toFixed(0), pliCount, pauseCount, lostCount }
+          return { fps, bitrate, jbDelay, e2eDelay, rtt: currentRtt.toFixed(0), pliCount, pauseCount, lostCount, connectionType }
         }
       }
     } catch (e) {
@@ -645,12 +773,15 @@ function handleDeviceMessage(payload) {
     clipboardCallback = callback
   }
 
-  function setClipboard(text, paste = false) {
+  function setClipboard(text, options = false) {
+    const normalized = typeof options === 'boolean' ? { paste: options } : (options || {})
     if (clipboardChannel && clipboardChannel.readyState === 'open') {
       clipboardChannel.send(JSON.stringify({
         type: 'set_clipboard',
         text,
-        paste
+        paste: Boolean(normalized.paste),
+        source: normalized.source || 'local',
+        suppress_broadcast: Boolean(normalized.suppressBroadcast)
       }))
       return true
     }

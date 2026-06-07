@@ -113,3 +113,61 @@ chmod +x deploy_cloud.sh
 ### Q3: Coturn 容器不断报错退出或提示 `Address already in use`
 * **原因**：coturn 容器使用了 `network_mode: host` 模式，如果服务器上已经安装或启用了系统级的 coturn 实例，会产生 `3478` 端口冲突。
 * **排查方法**：在宿主机运行 `sudo systemctl stop coturn` 和 `sudo systemctl disable coturn` 彻底关闭本地自带的服务进程，然后重新启动容器。
+
+---
+
+## 7. 容器服务升级、回滚、完全卸载与连接记录
+
+为了方便在生产环境中进行日常维护，`deploy_cloud.sh` 脚本提供了完善的生命周期与版本管理指令。
+
+### 7.1 服务升级与自动备份
+当您在本地编译并打包了新的版本后，只需重新执行部署命令：
+```bash
+./deploy_cloud.sh
+# 或
+./deploy_cloud.sh deploy
+```
+**自动备份机制**：
+- 在开始应用新配置和构建新镜像之前，脚本会自动检测：
+  - 如果本地已存在旧版 `cloudphone-all-in-one:latest` 镜像，会将其重新标记备份为 `cloudphone-all-in-one:rollback` 镜像。
+  - 会将当前的 `.env` 备份为 `.env.bak`，将 `turnserver.conf` 备份为 `turnserver.conf.bak`。
+
+### 7.2 服务一键回滚 (Rollback)
+如果新版本部署后发现运行异常，或者配置出现严重失误，可以通过以下命令快速将服务恢复到升级前的状态：
+```bash
+./deploy_cloud.sh rollback
+```
+**回滚机制**：
+- 自动停止当前的容器。
+- 自动将备份镜像 `cloudphone-all-in-one:rollback` 恢复为 `latest` 标签。
+- 还原备份的配置文件 `.env.bak` -> `.env` 和 `turnserver.conf.bak` -> `turnserver.conf`。
+- 重新使用旧镜像和旧配置拉起容器集群，并自动重建连接凭证记录。
+
+### 7.3 完全卸载与资源清理 (Uninstall)
+如果您需要清理服务器环境，彻底停用并卸载云手机服务，可以运行：
+```bash
+./deploy_cloud.sh uninstall
+# 或
+./deploy_cloud.sh down
+```
+**清理范围**：
+- 停止并完全销毁当前 Docker 容器及网络。
+- 强制删除本地编译生成的 Docker 镜像：`cloudphone-all-in-one:latest` 和 `cloudphone-all-in-one:rollback`。
+- 自动执行 `docker image prune -f` 清理 dangling（无标签残留）镜像缓存，释放磁盘空间。
+- 清除本地生成的所有临时配置文件（`.env`、`turnserver.conf` 及其对应的 `.bak` 备份文件）和本地连接记录文件。
+
+### 7.4 本地连接凭证记录
+每次成功执行 `deploy`（部署）或 `rollback`（回滚）后，脚本都会自动将本次部署的关键网络连接信息以日志形式保存到脚本同级目录下的连接配置文件中：
+```text
+docker/connection_info.txt
+```
+该文件包含了：
+1. **网页端管理后台的 URL 地址**。
+2. **Android 设备或 redroid 容器中启动 Agent 所需的完整命令行指令（包含自动生成的随机中转账号及密码）**。
+
+您可以随时通过运行以下命令在本地快速查看该连接信息而无需重新执行脚本：
+```bash
+cat connection_info.txt
+```
+> [!NOTE]
+> 为防止带有中转账号密码等敏感信息的 `connection_info.txt`、`.env` 配置文件被意外提交到版本控制系统中，项目已在全局 `.gitignore` 中对这些临时生成的文件和备份文件进行了忽略配置。

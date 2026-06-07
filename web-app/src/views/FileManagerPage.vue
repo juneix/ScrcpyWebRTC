@@ -1,189 +1,176 @@
 <template>
   <div class="file-manager-page">
-    <!-- 头部设备控制栏 -->
-    <div class="fm-page-header">
-      <div class="header-title-group">
-        <svg class="header-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-        <h2 class="header-title">文件中心</h2>
-      </div>
-
-      <div class="device-selector-group">
-        <span class="selector-label">选择设备:</span>
-        <select v-model="selectedDeviceId" class="device-select">
-          <option value="" disabled>-- 请选择云手机设备 --</option>
-          <option v-for="d in deviceStore.onlineDevices" :key="d.id" :value="d.id">
-            {{ d.id }} (在线)
-          </option>
-        </select>
-        
-        <div class="connection-status" :class="connectionClass">
-          <span class="status-indicator"></span>
-          <span class="status-text">{{ connectionText }}</span>
+    <header class="fm-header">
+      <div class="fm-title-block">
+        <div class="fm-title-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>
+          </svg>
+        </div>
+        <div>
+          <h2>文件中心</h2>
+          <p>{{ selectedDeviceId || '选择在线设备后开始管理文件' }}</p>
         </div>
       </div>
-    </div>
 
-    <!-- 隐藏的哑视频，用来满足 useWebRTC.js 对视频流接收的内部要求 -->
-    <video ref="dummyVideo" style="display: none;" autoplay playsinline muted></video>
+      <div class="fm-device-panel">
+        <select v-model="selectedDeviceId" class="device-select" aria-label="选择设备">
+          <option value="" disabled>选择在线设备</option>
+          <option v-for="d in deviceStore.onlineDevices" :key="d.id" :value="d.id">
+            {{ d.name || d.id }}
+          </option>
+        </select>
+        <div class="connection-pill" :class="connectionClass">
+          <span class="status-dot"></span>
+          <span>{{ connectionText }}</span>
+        </div>
+      </div>
+    </header>
 
-    <!-- 主面板内容 -->
-    <div class="fm-page-body">
-      <!-- 未选择设备提示 -->
-      <div v-if="!selectedDeviceId" class="fm-placeholder-box">
-        <svg class="placeholder-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+    <video ref="dummyVideo" class="dummy-video" autoplay playsinline muted></video>
+
+    <main class="fm-body">
+      <section v-if="!selectedDeviceId" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>
+          <path d="M8 13h8"></path>
         </svg>
-        <h3>暂无连接设备</h3>
-        <p>请在上方下拉菜单中选择一个在线的云手机设备，以开启 P2P 文件传输通道。</p>
-      </div>
+        <h3>未选择设备</h3>
+        <p>选择一个在线云手机后，会自动建立文件通道。</p>
+      </section>
 
-      <!-- 连接中/连接出错 -->
-      <div v-else-if="webrtcStatus === 'connecting' || webrtcStatus === 'signaling' || webrtcStatus === 'connecting_webrtc'" class="fm-placeholder-box">
-        <div class="mini-spinner"></div>
-        <h3>正在建立 WebRTC 连接...</h3>
-        <p>建立 P2P 隧道中，请稍候...</p>
-      </div>
+      <section v-else-if="isConnecting" class="empty-state">
+        <div class="spinner"></div>
+        <h3>正在建立文件通道</h3>
+        <p>WebRTC 数据通道连接中。</p>
+      </section>
 
-      <div v-else-if="webrtcError" class="fm-placeholder-box error-state">
-        <svg class="placeholder-icon-svg error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="15" y1="9" x2="9" y2="15"></line>
-          <line x1="9" y1="9" x2="15" y2="15"></line>
+      <section v-else-if="webrtcError" class="empty-state error">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="m15 9-6 6"></path>
+          <path d="m9 9 6 6"></path>
         </svg>
         <h3>连接失败</h3>
-        <p class="error-detail">{{ webrtcError }}</p>
-        <button class="retry-btn" @click="reconnectDevice">重试连接</button>
-      </div>
+        <p>{{ webrtcError }}</p>
+        <button class="primary-btn" @click="reconnectDevice">重试</button>
+      </section>
 
-      <!-- 文件管理器核心界面 -->
-      <div v-else class="file-manager-container">
-        <!-- 导航及操作栏 -->
-        <div class="fm-nav-bar">
-          <button class="fm-back-btn" @click="goUpFolder" :disabled="currentPath === '/'">
-            <svg class="svg-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            <span class="btn-text">返回</span>
+      <section v-else class="fm-shell">
+        <div class="toolbar">
+          <button class="icon-btn" @click="goUpFolder" :disabled="currentPath === '/'" title="返回上级">
+            <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
           </button>
-          <div class="fm-path-display">
-            <span class="path-label">路径:</span>
-            <input v-model="currentPath" @keyup.enter="refreshFileList" class="path-input" />
+          <div class="path-box">
+            <span>路径</span>
+            <input v-model="pathDraft" @keyup.enter="applyPath" @blur="pathDraft = currentPath" />
           </div>
-          <button class="fm-action-btn accent" @click="refreshFileList">
-            <svg class="svg-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-            </svg>
-            <span class="btn-text">刷新</span>
+          <button class="icon-btn" @click="refreshFileList" title="刷新">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
           </button>
-          <button class="fm-action-btn" @click="showNewFolderPrompt">
-            <svg class="svg-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              <line x1="12" y1="11" x2="12" y2="17"></line>
-              <line x1="9" y1="14" x2="15" y2="14"></line>
-            </svg>
-            <span class="btn-text">新建</span>
+          <button class="icon-btn" @click="showNewFolderPrompt" title="新建文件夹">
+            <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>
           </button>
-          <label class="fm-upload-label">
-            <svg class="svg-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <span class="btn-text">上传</span>
-            <input type="file" @change="onFileSelected" style="display:none" />
+          <label class="upload-btn" :class="{ disabled: hasActiveUpload }" title="上传文件">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>
+            <span>上传</span>
+            <input type="file" :disabled="hasActiveUpload" @change="onFileSelected" />
           </label>
         </div>
 
-        <!-- 列表容器（支持文件拖拽） -->
-        <div 
-          class="fm-list-wrapper"
+        <div class="selection-bar" :class="{ visible: selectedFiles.length > 0 }">
+          <div class="selection-summary">
+            <strong>{{ selectedFiles.length }}</strong>
+            <span>个项目已选择</span>
+          </div>
+          <div class="selection-actions">
+            <button class="secondary-btn" @click="clearSelection">取消选择</button>
+            <button class="secondary-btn" :disabled="selectedDownloadableFiles.length === 0" @click="downloadSelected">
+              下载
+            </button>
+            <button class="secondary-btn" :disabled="selectedInstallableFiles.length === 0" @click="installSelectedApks">
+              安装 APK
+            </button>
+            <button class="danger-btn" @click="deleteSelected">删除</button>
+          </div>
+        </div>
+
+        <div
+          class="file-surface"
+          :class="{ 'drag-over': dragOver }"
           @dragover.prevent="dragOver = true"
           @dragleave="dragOver = false"
           @drop.prevent="onFileDropped"
-          :class="{'drag-over': dragOver}"
         >
           <div v-if="dragOver" class="drag-overlay">
-            <div class="drag-hint">释放鼠标以上传至当前目录</div>
+            <div>释放后上传到当前目录</div>
           </div>
 
-          <div v-if="filesLoading" class="fm-loading">正在载入文件列表...</div>
-          <div v-else-if="fileList.length === 0" class="fm-empty-hint">空目录或无权限</div>
-          <table v-else class="fm-table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>大小</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="file in fileList" :key="file.path" class="fm-row" @dblclick="onRowDblClick(file)">
-                <td class="fm-name-col-cell">
-                  <div class="file-name-cell">
-                    <svg v-if="file.is_dir" class="file-icon folder-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M10 4H4C2.9 4 2.01 4.9 2.01 6L2 18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z" fill="#e0a924"/>
-                    </svg>
-                    <svg v-else class="file-icon file-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.89 22 5.99 22H18C19.1 22 20 21.1 20 20V8L14 2ZM16 18H8V16H16V18ZM16 14H8V12H16V14ZM13 9V3.5L18.5 9H13Z" fill="#8b949e"/>
-                    </svg>
-                    <span class="file-name-txt">{{ file.name }}</span>
-                  </div>
-                </td>
-                <td class="fm-size-cell">{{ file.is_dir ? '-' : formatFileSize(file.size) }}</td>
-                <td class="fm-actions-col-cell">
-                  <div class="fm-actions-cell">
-                    <button v-if="!file.is_dir" class="row-btn" @click="downloadFile(file)" title="下载">
-                      <svg class="row-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                      <span class="row-btn-text">下载</span>
-                    </button>
-                    <button v-if="!file.is_dir && file.name.endsWith('.apk')" class="row-btn accent" @click="installApkFromFile(file)" title="一键安装">
-                      <svg class="row-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="16 16 12 12 8 16"></polyline>
-                        <line x1="12" y1="12" x2="12" y2="21"></line>
-                        <path d="M20.8 4.6a2 2 0 0 0-1.8-1.1H5a2 2 0 0 0-1.8 1.1L1 10h22z"></path>
-                      </svg>
-                      <span class="row-btn-text">安装</span>
-                    </button>
-                    <button class="row-btn danger" @click="deleteFile(file)" title="删除">
-                      <svg class="row-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
-                      </svg>
-                      <span class="row-btn-text">删除</span>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <div class="list-head">
+            <label class="check-cell">
+              <input type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll($event.target.checked)" />
+            </label>
+            <button class="head-name" @click="setSort('name')">名称 {{ sortMark('name') }}</button>
+            <button class="head-meta" @click="setSort('size')">大小 {{ sortMark('size') }}</button>
+            <button class="head-meta" @click="setSort('mod_time')">修改时间 {{ sortMark('mod_time') }}</button>
+          </div>
 
-        <!-- 传输进度监控 -->
-        <div v-if="activeTransfers.length > 0" class="fm-transfer-section">
-          <div class="transfer-title">传输任务进度</div>
-          <div class="transfer-list">
-            <div v-for="t in activeTransfers" :key="t.id" class="transfer-card">
-              <span class="transfer-name" :title="t.name">{{ t.name }}</span>
-              <span class="transfer-info">{{ t.type === 'upload' ? '上传' : '下载' }} ({{ t.progress }}%)</span>
-              <div class="transfer-progress-bar">
-                <div class="progress-fill" :style="{width: t.progress + '%'}"></div>
+          <div v-if="filesLoading" class="list-state">
+            <div class="spinner small"></div>
+            <span>正在读取文件列表</span>
+          </div>
+          <div v-else-if="sortedFiles.length === 0" class="list-state">
+            <span>空目录或无权限</span>
+          </div>
+          <div v-else class="file-list">
+            <div
+              v-for="file in sortedFiles"
+              :key="file.path"
+              class="file-row"
+              :class="{ selected: selectedPaths.has(file.path), folder: file.is_dir }"
+              @click="onRowClick(file)"
+              @dblclick.stop="onRowDblClick(file)"
+            >
+              <label class="check-cell" @click.stop>
+                <input type="checkbox" :checked="selectedPaths.has(file.path)" @change="toggleFileSelection(file, $event.target.checked)" />
+              </label>
+              <div class="file-primary">
+                <div class="file-icon" :class="{ folder: file.is_dir, apk: isApk(file) }">
+                  <svg v-if="file.is_dir" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path></svg>
+                  <svg v-else-if="isApk(file)" viewBox="0 0 24 24"><path d="M7 8h10"></path><path d="M8 8V6"></path><path d="M16 8V6"></path><path d="M6 10h12v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z"></path><path d="M10 13v2"></path><path d="M14 13v2"></path></svg>
+                  <svg v-else viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>
+                </div>
+                <div class="file-text">
+                  <span class="file-name">{{ file.name }}</span>
+                  <span class="file-path">{{ file.path }}</span>
+                </div>
               </div>
-              <button v-if="t.progress >= 100 || t.status === 'success' || t.status === 'failed'" class="close-card" @click="removeTransfer(t.id)">✕</button>
+              <div class="file-size">{{ file.is_dir ? '文件夹' : formatFileSize(file.size) }}</div>
+              <div class="file-date">{{ formatTime(file.mod_time) }}</div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+
+        <aside v-if="activeTransfers.length > 0" class="transfer-dock">
+          <div class="dock-head">
+            <span>传输任务</span>
+            <button @click="clearFinishedTransfers">清理完成</button>
+          </div>
+          <div class="transfer-list">
+            <div v-for="t in activeTransfers" :key="t.id" class="transfer-item" :class="t.status">
+              <div class="transfer-main">
+                <span class="transfer-name" :title="t.name">{{ t.name }}</span>
+                <span class="transfer-status">{{ transferLabel(t) }}</span>
+              </div>
+              <div class="transfer-progress">
+                <div :style="{ width: t.progress + '%' }"></div>
+              </div>
+              <button v-if="isTransferDone(t)" @click="removeTransfer(t.id)">×</button>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
   </div>
 </template>
 
@@ -196,7 +183,6 @@ const deviceStore = useDeviceStore()
 const selectedDeviceId = ref('')
 const dummyVideo = ref(null)
 
-// WebRTC 状态
 let webrtc = null
 let unwatchStatus = null
 let unwatchError = null
@@ -206,26 +192,32 @@ const webrtcStatus = ref('disconnected')
 const webrtcError = ref(null)
 const isFileChannelReady = ref(false)
 
-// 文件列表相关
 const currentPath = ref('/sdcard')
+const pathDraft = ref('/sdcard')
 const fileList = ref([])
 const filesLoading = ref(false)
 const dragOver = ref(false)
-const activeTransfers = ref([]) // { id, name, type, progress, status, total, loaded }
+const selectedPaths = ref(new Set())
+const sortKey = ref('name')
+const sortDir = ref('asc')
+const activeTransfers = ref([])
 let transferIdSeq = 0
+let activeDownloadSession = null
+let activeInstallSession = null
 
-// 缓存下载/上传中的会话
 const downloadSessions = {}
 const uploadSessions = {}
+const installSessions = {}
+const downloadQueue = []
+const installQueue = []
 
-// 计算连接状态文案与类名
+const isConnecting = computed(() => ['connecting', 'signaling', 'waiting_offer', 'connecting_webrtc'].includes(webrtcStatus.value))
+
 const connectionText = computed(() => {
   if (!selectedDeviceId.value) return '未连接'
-  if (isFileChannelReady.value) return '已建立 P2P 通道'
+  if (isFileChannelReady.value) return '文件通道已连接'
   if (webrtcError.value) return '连接错误'
-  if (webrtcStatus.value === 'connecting' || webrtcStatus.value === 'signaling' || webrtcStatus.value === 'connecting_webrtc') {
-    return '正在建立隧道...'
-  }
+  if (isConnecting.value) return '连接中'
   return '未连接'
 })
 
@@ -236,7 +228,33 @@ const connectionClass = computed(() => {
   return 'connecting'
 })
 
-// 初始化与释放 WebRTC
+const sortedFiles = computed(() => {
+  const files = [...fileList.value]
+  const direction = sortDir.value === 'asc' ? 1 : -1
+  files.sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+    let av = a[sortKey.value]
+    let bv = b[sortKey.value]
+    if (sortKey.value === 'name') {
+      av = String(av || '').toLowerCase()
+      bv = String(bv || '').toLowerCase()
+      return av.localeCompare(bv) * direction
+    }
+    return ((Number(av) || 0) - (Number(bv) || 0)) * direction
+  })
+  return files
+})
+
+const selectedFiles = computed(() => sortedFiles.value.filter(file => selectedPaths.value.has(file.path)))
+const selectedDownloadableFiles = computed(() => selectedFiles.value.filter(file => !file.is_dir))
+const selectedInstallableFiles = computed(() => selectedFiles.value.filter(file => !file.is_dir && isApk(file)))
+const allVisibleSelected = computed(() => sortedFiles.value.length > 0 && sortedFiles.value.every(file => selectedPaths.value.has(file.path)))
+const hasActiveUpload = computed(() => activeTransfers.value.some(item => ['upload', 'upload-install'].includes(item.type) && !isTransferDone(item)))
+
+watch(currentPath, (path) => {
+  pathDraft.value = path
+})
+
 function cleanWebRTC() {
   if (unwatchStatus) { unwatchStatus(); unwatchStatus = null }
   if (unwatchError) { unwatchError(); unwatchError = null }
@@ -255,233 +273,343 @@ function cleanWebRTC() {
   webrtcError.value = null
   isFileChannelReady.value = false
   fileList.value = []
-  activeTransfers.value = []
+  resetTransferState()
+  clearSelection()
 }
 
 function reconnectDevice() {
-  if (selectedDeviceId.value) {
-    const id = selectedDeviceId.value
-    selectedDeviceId.value = ''
-    setTimeout(() => {
-      selectedDeviceId.value = id
-    }, 100)
-  }
+  if (!selectedDeviceId.value) return
+  const id = selectedDeviceId.value
+  selectedDeviceId.value = ''
+  setTimeout(() => {
+    selectedDeviceId.value = id
+  }, 100)
 }
 
 watch(selectedDeviceId, (newId) => {
-  console.log('[FileManager] selectedDeviceId changed to:', newId, 'activeDeviceId:', deviceStore.activeDeviceId, 'activeWebRTC:', !!deviceStore.activeWebRTC)
   cleanWebRTC()
-  if (newId) {
-    // 智能检查：如果当前右侧正开启了该设备的云手机窗口，则直接共享复用其 WebRTC 实例！
-    if (deviceStore.activeDeviceId === newId && deviceStore.activeWebRTC) {
-      webrtc = deviceStore.activeWebRTC
-      isSharedConnection = true
-      console.log('[FileManager] Reusing active WebRTC session for device:', newId, 'fileChannelReady:', webrtc?.fileChannelReady?.value, 'status:', webrtc?.status?.value)
-    } else {
-      // 独立建立 webrtc 通道，只做文件管理
-      webrtc = useWebRTC(newId, {
-        audio: false // 纯文件管理不需要音频
-      })
-      isSharedConnection = false
-      console.log('[FileManager] Initializing standalone WebRTC connection for device:', newId)
-    }
-    
-    // 监听 WebRTC 基础状态
-    unwatchStatus = watch(() => webrtc?.status?.value, (newStatus) => {
-      console.log('[FileManager] webrtc status changed:', newStatus)
-      webrtcStatus.value = newStatus || 'disconnected'
-    }, { immediate: true })
+  if (!newId) return
 
-    unwatchError = watch(() => webrtc?.error?.value, (newErr) => {
-      console.log('[FileManager] webrtc error changed:', newErr)
-      webrtcError.value = newErr || null
-    }, { immediate: true })
+  if (deviceStore.activeDeviceId !== newId) {
+    deviceStore.setActiveDevice(newId)
+  }
 
-    unwatchReady = watch(() => webrtc?.fileChannelReady?.value, (ready) => {
-      console.log('[FileManager] webrtc fileChannelReady changed:', ready)
-      isFileChannelReady.value = !!ready
-      if (ready) {
-        if (!currentPath.value) {
-          currentPath.value = '/sdcard'
-        }
-        refreshFileList()
-      }
-    }, { immediate: true })
+  if (deviceStore.activeDeviceId === newId && deviceStore.activeWebRTC) {
+    webrtc = deviceStore.activeWebRTC
+    isSharedConnection = true
+  } else {
+    webrtc = useWebRTC(newId, { audio: false })
+    isSharedConnection = false
+  }
 
-    if (isSharedConnection) {
-      // 共享连接已在正常运行，仅绑定文件回调并触发初始化刷新
-      console.log('[FileManager] Setting up message listener for shared WebRTC')
-      webrtc.onFileChannelMessage((data) => {
-        handleFileChannelMessage(data)
-      })
-      if (isFileChannelReady.value) {
-        console.log('[FileManager] fileChannel already ready, triggering refresh')
-        refreshFileList()
-      }
-    } else {
-      // 独立连接绑定哑视频并启动
-      setTimeout(() => {
-        if (webrtc && dummyVideo.value) {
-          console.log('[FileManager] Connecting standalone WebRTC')
-          webrtc.setVideoGetter(() => dummyVideo.value)
-          webrtc.onFileChannelMessage((data) => {
-            handleFileChannelMessage(data)
-          })
-          webrtc.connect()
-        }
-      }, 50)
-    }
+  unwatchStatus = watch(() => webrtc?.status?.value, (newStatus) => {
+    webrtcStatus.value = newStatus || 'disconnected'
+  }, { immediate: true })
+
+  unwatchError = watch(() => webrtc?.error?.value, (newErr) => {
+    webrtcError.value = newErr || null
+  }, { immediate: true })
+
+  unwatchReady = watch(() => webrtc?.fileChannelReady?.value, (ready) => {
+    isFileChannelReady.value = Boolean(ready)
+    if (ready) refreshFileList()
+  }, { immediate: true })
+
+  webrtc.onFileChannelMessage(handleFileChannelMessage)
+
+  if (!isSharedConnection) {
+    setTimeout(() => {
+      if (!webrtc || !dummyVideo.value) return
+      webrtc.setVideoGetter(() => dummyVideo.value)
+      webrtc.connect()
+    }, 50)
+  } else if (isFileChannelReady.value) {
+    refreshFileList()
   }
 })
 
-// 页面销毁时主动断开连接
-onUnmounted(() => {
-  cleanWebRTC()
+watch(() => deviceStore.activeDeviceId, (newActiveId) => {
+  if (newActiveId && selectedDeviceId.value !== newActiveId) {
+    selectedDeviceId.value = newActiveId
+  }
 })
 
-// 列表及基本操作
 function formatFileSize(bytes) {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${Number((bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1))} ${units[index]}`
+}
+
+function formatTime(seconds) {
+  if (!seconds) return '-'
+  return new Date(seconds * 1000).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function isApk(file) {
+  return file?.name?.toLowerCase().endsWith('.apk')
+}
+
+function normalizePath(path) {
+  const value = String(path || '/sdcard').trim()
+  if (!value) return '/sdcard'
+  return value.startsWith('/') ? value.replace(/\/+/g, '/') : `/${value}`.replace(/\/+/g, '/')
+}
+
+function joinPath(base, name) {
+  return `${base.endsWith('/') ? base.slice(0, -1) : base}/${name}`
 }
 
 function refreshFileList() {
-  console.log('[FileManager] refreshFileList called. path:', currentPath.value, 'ready:', isFileChannelReady.value, 'webrtc:', !!webrtc)
-  if (!isFileChannelReady.value || !webrtc) {
-    return
-  }
+  if (!isFileChannelReady.value || !webrtc) return
   filesLoading.value = true
-  const success = webrtc.sendFileChannelCmd({
-    type: 'list',
-    path: currentPath.value
-  })
-  console.log('[FileManager] list command sent, success:', success)
+  webrtc.sendFileChannelCmd({ type: 'list', path: currentPath.value })
 }
 
-function onRowDblClick(file) {
-  if (file.is_dir) {
-    currentPath.value = file.path
-    refreshFileList()
-  } else {
-    downloadFile(file)
-  }
+function applyPath() {
+  currentPath.value = normalizePath(pathDraft.value)
+  refreshFileList()
 }
 
 function goUpFolder() {
   const parts = currentPath.value.split('/').filter(Boolean)
-  if (parts.length > 0) {
-    parts.pop()
-    currentPath.value = '/' + parts.join('/')
+  if (parts.length === 0) return
+  parts.pop()
+  currentPath.value = parts.length ? `/${parts.join('/')}` : '/'
+  refreshFileList()
+}
+
+function onRowClick(file) {
+  if (file.is_dir) {
+    currentPath.value = file.path
     refreshFileList()
   }
 }
 
+function onRowDblClick(file) {
+  if (!file.is_dir) downloadFile(file)
+}
+
 function showNewFolderPrompt() {
-  const name = prompt('请输入新建文件夹名称:')
-  if (!name) return
-  const newPath = currentPath.value.endsWith('/') ? currentPath.value + name : currentPath.value + '/' + name
-  webrtc.sendFileChannelCmd({
-    type: 'mkdir',
-    path: newPath
-  })
+  if (!webrtc) return
+  const name = prompt('新建文件夹名称')
+  const trimmed = name?.trim()
+  if (!trimmed) return
+  webrtc.sendFileChannelCmd({ type: 'mkdir', path: joinPath(currentPath.value, trimmed) })
 }
 
-function deleteFile(file) {
-  if (!confirm(`确认要删除 ${file.is_dir ? '文件夹' : '文件'} "${file.name}" 吗？\n警告：删除后无法恢复！`)) return
-  webrtc.sendFileChannelCmd({
-    type: 'delete',
-    path: file.path
-  })
+function toggleFileSelection(file, force) {
+  const next = new Set(selectedPaths.value)
+  const checked = force ?? !next.has(file.path)
+  if (checked) next.add(file.path)
+  else next.delete(file.path)
+  selectedPaths.value = next
 }
 
-function downloadFile(file) {
-  if (downloadSessions[file.name]) {
-    alert('该文件正在下载中，请勿重复操作')
-    return
+function toggleSelectAll(checked) {
+  const next = new Set(selectedPaths.value)
+  sortedFiles.value.forEach(file => {
+    if (checked) next.add(file.path)
+    else next.delete(file.path)
+  })
+  selectedPaths.value = next
+}
+
+function clearSelection() {
+  selectedPaths.value = new Set()
+}
+
+function setSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDir.value = key === 'name' ? 'asc' : 'desc'
   }
-  
+}
+
+function sortMark(key) {
+  if (sortKey.value !== key) return ''
+  return sortDir.value === 'asc' ? '↑' : '↓'
+}
+
+function downloadSelected() {
+  selectedDownloadableFiles.value.forEach(queueDownloadFile)
+  startNextDownload()
+}
+
+function installSelectedApks() {
+  selectedInstallableFiles.value.forEach(queueApkInstall)
+  startNextInstall()
+}
+
+function deleteSelected() {
+  if (!webrtc || selectedFiles.value.length === 0) return
+  if (!confirm(`确认删除选中的 ${selectedFiles.value.length} 个项目？删除后无法恢复。`)) return
+  selectedFiles.value.forEach(file => {
+    webrtc.sendFileChannelCmd({ type: 'delete', path: file.path })
+  })
+  clearSelection()
+}
+
+function queueDownloadFile(file) {
+  if (!webrtc || file.is_dir) return
+  if (downloadSessions[file.path]) return
+
   const id = ++transferIdSeq
+  const session = {
+    id,
+    name: file.name,
+    path: file.path,
+    chunks: [],
+    loaded: 0,
+    total: file.size || 0,
+    started: false
+  }
+
   activeTransfers.value.push({
     id,
     name: file.name,
+    path: file.path,
     type: 'download',
     progress: 0,
-    status: 'transferring',
-    total: file.size,
+    status: 'queued',
+    total: session.total,
     loaded: 0
   })
+  downloadSessions[file.path] = session
+  downloadQueue.push(session)
+}
 
-  downloadSessions[file.name] = {
+function downloadFile(file) {
+  queueDownloadFile(file)
+  startNextDownload()
+}
+
+function queueApkInstall(file) {
+  if (!webrtc || file.is_dir || !isApk(file)) return
+  if (installSessions[file.path]) return
+
+  const id = ++transferIdSeq
+  const session = {
     id,
-    chunks: [],
-    loaded: 0,
-    total: file.size
+    name: file.name,
+    path: file.path,
+    total: file.size || 0,
+    started: false
   }
 
-  webrtc.sendFileChannelCmd({
-    type: 'download_start',
-    path: file.path
+  activeTransfers.value.push({
+    id,
+    name: file.name,
+    path: file.path,
+    type: 'install',
+    progress: 0,
+    status: 'queued',
+    total: session.total,
+    loaded: 0
   })
+  installSessions[file.path] = session
+  installQueue.push(session)
 }
 
 function installApkFromFile(file) {
-  if (!confirm(`确认要在云手机中静默安装 "${file.name}" 吗？`)) return
-  webrtc.sendCommand({
-    cmd: `pm install -r -t "${file.path}"`
+  queueApkInstall(file)
+  startNextInstall()
+}
+
+function startNextDownload() {
+  if (!webrtc || activeDownloadSession) return
+  const session = downloadQueue.shift()
+  if (!session) return
+
+  activeDownloadSession = session
+  session.started = true
+  updateTransfer(session.id, { status: 'transferring', progress: session.total === 0 ? 100 : 0 })
+  const sent = webrtc.sendFileChannelCmd({
+    type: 'download_start',
+    path: session.path,
+    request_id: String(session.id)
   })
-  alert(`静默安装指令已下发！您可以在终端中监控对应的安装状态。`)
+  if (!sent) {
+    failDownloadSession(session, '文件通道不可用')
+  }
+}
+
+function startNextInstall() {
+  if (!webrtc || activeInstallSession) return
+  const session = installQueue.shift()
+  if (!session) return
+
+  activeInstallSession = session
+  session.started = true
+  updateTransfer(session.id, { status: 'installing', progress: 10 })
+  const sent = webrtc.sendFileChannelCmd({
+    type: 'install_apk',
+    path: session.path,
+    request_id: String(session.id)
+  })
+  if (!sent) {
+    failInstallSession(session, '文件通道不可用')
+  }
 }
 
 function onFileSelected(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  startUploadFile(file)
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (file) startUploadFile(file)
 }
 
 function onFileDropped(e) {
   dragOver.value = false
-  const file = e.dataTransfer.files[0]
-  if (!file) return
-  startUploadFile(file)
+  const file = e.dataTransfer.files?.[0]
+  if (file) startUploadFile(file)
+}
+
+async function calculateFileSHA256(file) {
+  const arrayBuffer = await file.arrayBuffer()
+  const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function startUploadFile(file) {
   if (!isFileChannelReady.value || !webrtc) {
-    alert('通道尚未建立，无法上传文件！')
+    alert('文件通道尚未建立，无法上传。')
+    return
+  }
+  if (hasActiveUpload.value) {
+    alert('已有上传任务正在进行，请完成后再上传。')
     return
   }
 
-  const isApk = file.name.endsWith('.apk')
-  let installOnFinish = false
-  if (isApk) {
-    installOnFinish = confirm(`检测到您上传的是 Android 安装包 "${file.name}"，是否在传输完成后自动安装到云手机？`)
-  }
-
-  const destPath = currentPath.value.endsWith('/') 
-    ? currentPath.value + file.name 
-    : currentPath.value + '/' + file.name
-
+  const installOnFinish = isApk(file) && confirm(`上传完成后安装 "${file.name}"？`)
+  const destPath = joinPath(currentPath.value, file.name)
   const id = ++transferIdSeq
-  const transfer = {
+  activeTransfers.value.push({
     id,
     name: file.name,
-    type: 'upload',
+    path: destPath,
+    type: installOnFinish ? 'upload-install' : 'upload',
     progress: 0,
-    status: 'transferring',
+    status: 'checking',
     total: file.size,
     loaded: 0
-  }
-  activeTransfers.value.push(transfer)
-
-  webrtc.sendFileChannelCmd({
-    type: 'upload_start',
-    path: destPath,
-    size: file.size,
-    install_on_finish: installOnFinish
   })
+
+  let sha256Str = ''
+  try {
+    sha256Str = await calculateFileSHA256(file)
+  } catch (err) {
+    console.error('[SHA256] Failed to calculate hash:', err)
+  }
+
+  updateTransfer(id, { status: 'transferring' })
 
   uploadSessions[destPath] = {
     id,
@@ -490,39 +618,34 @@ async function startUploadFile(file) {
     installOnFinish,
     destPath
   }
+  webrtc.sendFileChannelCmd({
+    type: 'upload_start',
+    path: destPath,
+    size: file.size,
+    sha256: sha256Str,
+    install_on_finish: installOnFinish
+  })
 }
 
 async function sendNextChunks(session) {
-  // 修改为标准的 16KB，防止底层 WebRTC / Pion SCTP 抛出 short buffer 错误
   const chunkSize = 16384
   const file = session.file
-  let chunkCount = 0
-
   while (session.offset < file.size) {
     if (!webrtc) break
-    const buffered = webrtc.getFileChannelBufferedAmount()
-    if (buffered > 256 * 1024) {
+    if (webrtc.getFileChannelBufferedAmount() > 256 * 1024) {
       await new Promise(resolve => setTimeout(resolve, 30))
       continue
     }
-
     const start = session.offset
     const end = Math.min(start + chunkSize, file.size)
-    const blobSlice = file.slice(start, end)
-
-    const arrayBuffer = await blobSlice.arrayBuffer()
+    const arrayBuffer = await file.slice(start, end).arrayBuffer()
     if (!webrtc) break
-    const success = webrtc.sendFileChannelChunk(arrayBuffer)
-    if (success) {
+    if (webrtc.sendFileChannelChunk(arrayBuffer)) {
       session.offset = end
-      const t = activeTransfers.value.find(x => x.id === session.id)
-      if (t) {
-        t.loaded = end
-        t.progress = Math.min(Math.floor((end / file.size) * 100), 99)
-      }
-      
-      chunkCount++
-      // 每次成功发送一个分片后，均强制微小挂起 2ms，让出主线程以便浏览器将数据推入底层协议栈并准确更新 bufferedAmount
+      updateTransfer(session.id, {
+        loaded: end,
+        progress: Math.min(Math.floor((end / file.size) * 100), 99)
+      })
       await new Promise(resolve => setTimeout(resolve, 2))
     } else {
       await new Promise(resolve => setTimeout(resolve, 50))
@@ -530,134 +653,58 @@ async function sendNextChunks(session) {
   }
 }
 
-let activeDownloadSession = null
+function updateTransfer(id, patch) {
+  const target = activeTransfers.value.find(item => item.id === id)
+  if (target) Object.assign(target, patch)
+}
+
+function resetTransferState() {
+  activeTransfers.value = []
+  activeDownloadSession = null
+  activeInstallSession = null
+  downloadQueue.length = 0
+  installQueue.length = 0
+  Object.keys(downloadSessions).forEach(path => delete downloadSessions[path])
+  Object.keys(uploadSessions).forEach(path => delete uploadSessions[path])
+  Object.keys(installSessions).forEach(path => delete installSessions[path])
+}
 
 function handleFileChannelMessage(data) {
   if (data instanceof ArrayBuffer) {
-    if (activeDownloadSession) {
-      activeDownloadSession.chunks.push(data)
-      activeDownloadSession.loaded += data.byteLength
-      
-      const t = activeTransfers.value.find(x => x.id === activeDownloadSession.id)
-      if (t) {
-        t.loaded = activeDownloadSession.loaded
-        t.progress = Math.min(Math.floor((activeDownloadSession.loaded / activeDownloadSession.total) * 100), 100)
-      }
-
-      if (activeDownloadSession.loaded >= activeDownloadSession.total) {
-        // 拼接下载
-        const blob = new Blob(activeDownloadSession.chunks)
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        const matchedName = Object.keys(downloadSessions).find(k => downloadSessions[k].id === activeDownloadSession.id)
-        a.download = matchedName || 'downloaded_file'
-        a.click()
-        URL.revokeObjectURL(url)
-
-        if (t) {
-          t.progress = 100
-          t.status = 'success'
-        }
-        if (matchedName) {
-          delete downloadSessions[matchedName]
-        }
-        activeDownloadSession = null
-      }
-    }
+    handleDownloadChunk(data)
     return
   }
 
   try {
     const msg = JSON.parse(data)
-    console.log('[FileManager] Received JSON msg from channel:', msg.type || msg.message_type, msg)
     switch (msg.type) {
       case 'list_reply':
         filesLoading.value = false
         if (msg.success) {
+          currentPath.value = msg.path || currentPath.value
           fileList.value = msg.files || []
+          selectedPaths.value = new Set([...selectedPaths.value].filter(path => fileList.value.some(file => file.path === path)))
         } else {
           alert('读取文件列表失败: ' + msg.error)
         }
         break
-
       case 'mkdir_reply':
-        if (msg.success) {
-          refreshFileList()
-        } else {
-          alert('创建目录失败: ' + msg.error)
-        }
+        msg.success ? refreshFileList() : alert('创建目录失败: ' + msg.error)
         break
-
       case 'delete_reply':
-        if (msg.success) {
-          refreshFileList()
-        } else {
-          alert('删除失败: ' + msg.error)
-        }
+        msg.success ? refreshFileList() : alert('删除失败: ' + msg.error)
         break
-
       case 'upload_reply':
-        if (msg.success) {
-          let matched = null
-          if (msg.path) {
-            matched = uploadSessions[msg.path]
-          }
-          if (!matched) {
-            matched = Object.values(uploadSessions).find(s => s.offset === 0) || Object.values(uploadSessions)[0]
-          }
-          if (matched) {
-            sendNextChunks(matched)
-          } else {
-            console.error('[FileManager] No active upload session matched for start', msg)
-          }
-        } else {
-          alert('开始上传文件失败: ' + msg.error)
-        }
+        handleUploadReply(msg)
         break
-
       case 'upload_ack':
-        {
-          let matched = null
-          if (msg.path) {
-            matched = uploadSessions[msg.path]
-          }
-          if (!matched) {
-            matched = Object.values(uploadSessions)[0]
-          }
-          
-          if (msg.finished) {
-            const sessionKey = Object.keys(uploadSessions).find(k => uploadSessions[k].id === (matched?.id || msg.id))
-            const t = activeTransfers.value.find(x => x.id === (matched?.id || msg.id))
-            if (t) {
-              t.progress = 100
-              t.status = msg.installOnFinish ? 'installing' : 'success'
-              if (sessionKey) delete uploadSessions[sessionKey]
-              refreshFileList()
-            }
-          }
-        }
+        handleUploadAck(msg)
         break
-
       case 'download_reply':
-        if (msg.success) {
-          activeDownloadSession = downloadSessions[msg.name]
-        } else {
-          alert('开始下载文件失败: ' + msg.error)
-        }
+        handleDownloadReply(msg)
         break
-
       case 'install_status':
-        const target = activeTransfers.value.find(x => x.type === 'upload' && (x.status === 'installing' || x.status === 'transferring'))
-        if (target) {
-          if (msg.status === 'success') {
-            target.status = 'success'
-            alert('APK 静默安装成功！')
-          } else if (msg.status === 'error') {
-            target.status = 'failed'
-            alert(msg.message)
-          }
-        }
+        handleInstallStatus(msg)
         break
     }
   } catch (e) {
@@ -665,15 +712,186 @@ function handleFileChannelMessage(data) {
   }
 }
 
+function handleUploadReply(msg) {
+  if (!msg.success) {
+    const session = Object.values(uploadSessions)[0]
+    if (session) {
+      updateTransfer(session.id, { status: 'failed', progress: 100, message: msg.error })
+      delete uploadSessions[session.destPath]
+    }
+    alert('开始上传文件失败: ' + msg.error)
+    return
+  }
+  const session = msg.path ? uploadSessions[msg.path] : Object.values(uploadSessions).find(s => s.offset === 0)
+  if (session) sendNextChunks(session)
+}
+
+function handleUploadAck(msg) {
+  const session = msg.path ? uploadSessions[msg.path] : Object.values(uploadSessions)[0]
+  if (!session) return
+
+  if (msg.finished && msg.success === false) {
+    updateTransfer(session.id, {
+      loaded: msg.uploaded ?? session.offset,
+      progress: 100,
+      status: 'failed',
+      message: msg.error || '校验失败'
+    })
+    delete uploadSessions[session.destPath]
+    alert('上传文件完整性校验失败: ' + msg.error)
+    return
+  }
+
+  updateTransfer(session.id, {
+    loaded: msg.uploaded ?? session.offset,
+    progress: msg.finished ? 100 : Math.min(Math.floor(((msg.uploaded ?? session.offset) / session.file.size) * 100), 99),
+    status: msg.finished && session.installOnFinish ? 'installing' : (msg.finished ? 'success' : 'transferring')
+  })
+
+  if (msg.finished) {
+    delete uploadSessions[session.destPath]
+    refreshFileList()
+  }
+}
+
+function handleDownloadReply(msg) {
+  const requestID = Number(msg.request_id)
+  const session = Number.isFinite(requestID) && requestID > 0
+    ? Object.values(downloadSessions).find(item => item.id === requestID)
+    : activeDownloadSession
+
+  if (!session) return
+
+  if (!msg.success) {
+    failDownloadSession(session, msg.error || '未知错误')
+    alert('开始下载文件失败: ' + msg.error)
+    return
+  }
+
+  session.total = Number(msg.size ?? session.total) || 0
+  updateTransfer(session.id, { total: session.total })
+  if (session.total === 0) {
+    finishDownloadSession(session)
+  }
+}
+
+function handleDownloadChunk(data) {
+  if (!activeDownloadSession) return
+
+  activeDownloadSession.chunks.push(data)
+  activeDownloadSession.loaded += data.byteLength
+  updateTransfer(activeDownloadSession.id, {
+    loaded: activeDownloadSession.loaded,
+    progress: Math.min(Math.floor((activeDownloadSession.loaded / activeDownloadSession.total) * 100), 100)
+  })
+
+  if (activeDownloadSession.loaded < activeDownloadSession.total) return
+
+  finishDownloadSession(activeDownloadSession)
+}
+
+function finishDownloadSession(session) {
+  const blob = new Blob(session.chunks)
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = session.name
+  anchor.click()
+  URL.revokeObjectURL(url)
+  updateTransfer(session.id, { progress: 100, status: 'success' })
+  delete downloadSessions[session.path]
+  if (activeDownloadSession?.id === session.id) {
+    activeDownloadSession = null
+  }
+  startNextDownload()
+}
+
+function failDownloadSession(session, message) {
+  updateTransfer(session.id, { progress: 100, status: 'failed', message })
+  delete downloadSessions[session.path]
+  if (activeDownloadSession?.id === session.id) {
+    activeDownloadSession = null
+  }
+  startNextDownload()
+}
+
+function handleInstallStatus(msg) {
+  const id = Number(msg.request_id)
+  let target = Number.isFinite(id) && id > 0 ? activeTransfers.value.find(item => item.id === id) : null
+  if (!target && msg.path) {
+    target = activeTransfers.value.find(item => item.path === msg.path && ['queued', 'installing', 'transferring'].includes(item.status))
+  }
+  if (!target) return
+
+  if (msg.status === 'installing') {
+    target.status = 'installing'
+    target.progress = Math.max(target.progress, 60)
+  } else if (msg.status === 'success') {
+    target.status = 'success'
+    target.progress = 100
+    finishInstallSession(target)
+    refreshFileList()
+  } else if (msg.status === 'error') {
+    target.status = 'failed'
+    target.progress = 100
+    target.message = msg.message
+    finishInstallSession(target)
+    alert(msg.message)
+  }
+}
+
+function finishInstallSession(target) {
+  if (target.type !== 'install') return
+  delete installSessions[target.path]
+  if (activeInstallSession?.id === target.id) {
+    activeInstallSession = null
+  }
+  startNextInstall()
+}
+
+function failInstallSession(session, message) {
+  updateTransfer(session.id, { progress: 100, status: 'failed', message })
+  delete installSessions[session.path]
+  if (activeInstallSession?.id === session.id) {
+    activeInstallSession = null
+  }
+  startNextInstall()
+}
+
+function transferLabel(t) {
+  const map = {
+    upload: '上传',
+    'upload-install': t.status === 'installing' ? '安装中' : '上传',
+    download: '下载',
+    install: '安装'
+  }
+  if (t.status === 'queued') return '排队中'
+  if (t.status === 'checking') return '校验中'
+  if (t.status === 'success') return '完成'
+  if (t.status === 'failed') return '失败'
+  return `${map[t.type] || '任务'} ${t.progress}%`
+}
+
+function isTransferDone(t) {
+  return ['success', 'failed'].includes(t.status)
+}
+
 function removeTransfer(id) {
-  activeTransfers.value = activeTransfers.value.filter(x => x.id !== id)
+  activeTransfers.value = activeTransfers.value.filter(item => item.id !== id)
+}
+
+function clearFinishedTransfers() {
+  activeTransfers.value = activeTransfers.value.filter(item => !isTransferDone(item))
 }
 
 onMounted(() => {
-  // 如果当前 store 中有正在被激活的设备，则默认作为当前选中的设备
   if (deviceStore.activeDeviceId) {
     selectedDeviceId.value = deviceStore.activeDeviceId
   }
+})
+
+onUnmounted(() => {
+  cleanWebRTC()
 })
 </script>
 
@@ -682,676 +900,679 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 100%;
-  background: var(--bg-primary, #0d1117);
-  color: #c9d1d9;
+  min-height: 0;
+  color: #d6dde7;
+  background: #0f1218;
 }
 
-.fm-page-header {
+.dummy-video {
+  display: none;
+}
+
+.fm-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 16px 24px;
-  background: var(--bg-secondary, #161b22);
-  border-bottom: 1px solid var(--border, #30363d);
+  gap: 16px;
+  padding: 16px 22px;
+  background: #141922;
+  border-bottom: 1px solid #252d39;
 }
 
-.header-title-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-icon-svg {
-  width: 20px;
-  height: 20px;
-  color: var(--accent, #58a6ff);
-  flex-shrink: 0;
-}
-
-.header-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  color: #f0f6fc;
-}
-
-.device-selector-group {
+.fm-title-block {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
-.selector-label {
-  font-size: 14px;
-  color: #8b949e;
+.fm-title-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  color: #7cc7a7;
+  background: #19251f;
+  border: 1px solid #274333;
+  flex: 0 0 auto;
+}
+
+.fm-title-icon svg,
+.fm-title-block svg {
+  width: 20px;
+  height: 20px;
+}
+
+.fm-title-block h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  color: #f3f6fb;
+}
+
+.fm-title-block p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #8f9aaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 48vw;
+}
+
+.fm-device-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.device-select,
+.path-box input {
+  height: 36px;
+  border: 1px solid #2c3542;
+  border-radius: 8px;
+  color: #e8edf5;
+  background: #0f141c;
+  outline: none;
 }
 
 .device-select {
-  background: #21262d;
-  color: #c9d1d9;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 14px;
-  outline: none;
-  cursor: pointer;
+  min-width: 220px;
+  padding: 0 12px;
 }
 
-.device-select:focus {
-  border-color: var(--accent, #58a6ff);
-}
-
-.connection-status {
-  display: flex;
+.connection-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: #21262d;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid #30363d;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
   font-size: 12px;
+  border: 1px solid #2c3542;
+  background: #111720;
+  white-space: nowrap;
 }
 
-.status-indicator {
+.status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 55%;
-  background: #8b949e;
+  border-radius: 50%;
+  background: #8f9aaa;
 }
 
-.connection-status.connected .status-indicator {
-  background: #3fb950;
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.5);
+.connection-pill.connected .status-dot { background: #4ec98d; }
+.connection-pill.connecting .status-dot { background: #e2b84d; animation: pulse 1s infinite alternate; }
+.connection-pill.error .status-dot { background: #ff6b66; }
+
+@keyframes pulse {
+  from { opacity: .45; }
+  to { opacity: 1; }
 }
 
-.connection-status.connecting .status-indicator {
-  background: #dbb32d;
-  animation: status-pulse 1s infinite alternate;
-}
-
-.connection-status.error .status-indicator {
-  background: #f85149;
-}
-
-.status-text {
-  font-weight: 500;
-}
-
-@keyframes status-pulse {
-  0% { opacity: 0.4; }
-  100% { opacity: 1; }
-}
-
-.fm-page-body {
+.fm-body {
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
   display: flex;
 }
 
-.fm-placeholder-box {
+.empty-state {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 40px;
+  padding: 32px;
+  color: #8f9aaa;
 }
 
-.placeholder-icon-svg {
-  width: 48px;
-  height: 48px;
+.empty-state svg {
+  width: 54px;
+  height: 54px;
+  color: #7cc7a7;
   margin-bottom: 16px;
-  opacity: 0.4;
-  color: var(--accent, #58a6ff);
 }
 
-.fm-placeholder-box h3 {
+.empty-state h3 {
+  margin: 0 0 8px;
+  color: #f3f6fb;
   font-size: 18px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-  color: #eee;
 }
 
-.fm-placeholder-box p {
-  color: #8b949e;
-  font-size: 14px;
-  max-width: 400px;
-  margin: 0 0 20px 0;
+.empty-state p {
+  margin: 0 0 18px;
+  max-width: 420px;
   line-height: 1.5;
 }
 
-.fm-placeholder-box.error h3 {
-  color: #f85149;
+.empty-state.error svg,
+.empty-state.error h3 {
+  color: #ff6b66;
 }
 
-.error-detail {
-  font-family: monospace;
-  background: rgba(248, 81, 73, 0.1);
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid rgba(248, 81, 73, 0.2);
-}
-
-.retry-btn {
-  background: var(--accent, #58a6ff);
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.retry-btn:hover {
-  background: #1f85ff;
-}
-
-.mini-spinner {
-  width: 24px;
-  height: 24px;
-  border: 3px solid #30363d;
-  border-top-color: var(--accent, #58a6ff);
+.spinner {
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  animation: spinner 0.8s linear infinite;
+  border: 3px solid #2c3542;
+  border-top-color: #7cc7a7;
+  animation: spin .8s linear infinite;
   margin-bottom: 16px;
 }
 
-@keyframes spinner {
+.spinner.small {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+  margin: 0;
+}
+
+@keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* 核心管理器样式 */
-.file-manager-container {
+.fm-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  background: var(--bg-primary, #0d1117);
   overflow: hidden;
 }
 
-.fm-nav-bar {
+.toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: var(--bg-secondary, #161b22);
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border, #30363d);
+  gap: 8px;
+  padding: 12px 22px;
+  border-bottom: 1px solid #252d39;
+  background: #111720;
 }
 
-.fm-back-btn, .fm-action-btn, .fm-upload-label {
-  background: #21262d;
-  color: #c9d1d9;
-  border: 1px solid #30363d;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
+.icon-btn,
+.upload-btn,
+.secondary-btn,
+.danger-btn,
+.primary-btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #2c3542;
+  color: #d6dde7;
+  background: #18202b;
+  cursor: pointer;
   user-select: none;
 }
 
-.svg-btn-icon {
-  width: 14px;
-  height: 14px;
-  margin-right: 6px;
-  flex-shrink: 0;
+.icon-btn {
+  width: 38px;
+  flex: 0 0 auto;
 }
 
-.fm-back-btn:hover:not(:disabled), .fm-action-btn:hover, .fm-upload-label:hover {
-  background: #30363d;
-  border-color: #8b949e;
-}
-
-.fm-back-btn:disabled {
-  opacity: 0.4;
+.icon-btn:disabled,
+.secondary-btn:disabled {
+  opacity: .42;
   cursor: not-allowed;
 }
 
-.fm-action-btn.accent, .fm-upload-label {
-  background: var(--accent, #58a6ff);
-  border-color: var(--accent, #58a6ff);
-  color: #ffffff;
+.icon-btn svg,
+.upload-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.fm-action-btn.accent:hover, .fm-upload-label:hover {
-  background: #1f85ff;
-  border-color: #1f85ff;
-}
-
-.fm-path-display {
+.path-box {
+  flex: 1;
+  min-width: 120px;
   display: flex;
   align-items: center;
-  flex: 1;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 6px 12px;
-}
-
-.path-label {
-  font-size: 12px;
-  color: #8b949e;
-  margin-right: 8px;
-}
-
-.path-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: #c9d1d9;
-  font-size: 13px;
-  font-family: monospace;
-  outline: none;
-}
-
-.fm-list-wrapper {
-  flex: 1;
-  overflow-y: auto;
-  position: relative;
-}
-
-.fm-list-wrapper.drag-over {
-  background: rgba(88, 166, 255, 0.05);
-  border: 2px dashed var(--accent, #58a6ff);
-}
-
-.drag-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(13, 17, 23, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.drag-hint {
-  color: var(--accent, #58a6ff);
-  font-size: 16px;
-  font-weight: 600;
-  border: 2px dashed var(--accent, #58a6ff);
-  padding: 24px 48px;
+  gap: 8px;
+  height: 38px;
+  padding: 0 8px 0 12px;
   border-radius: 8px;
-  animation: breathe 1.5s infinite ease-in-out;
+  border: 1px solid #2c3542;
+  background: #0f141c;
 }
 
-@keyframes breathe {
-  0%, 100% { opacity: 0.6; transform: scale(0.98); }
-  50% { opacity: 1; transform: scale(1.02); }
+.path-box span {
+  font-size: 12px;
+  color: #8f9aaa;
 }
 
-.fm-loading, .fm-empty-hint {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 300px;
-  color: #8b949e;
-  font-size: 14px;
+.path-box input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.fm-table {
-  width: 100%;
-  border-collapse: collapse;
+.upload-btn {
+  gap: 7px;
+  padding: 0 14px;
+  color: #092016;
+  background: #7cc7a7;
+  border-color: #7cc7a7;
+  font-weight: 700;
+}
+
+.upload-btn.disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.upload-btn input {
+  display: none;
+}
+
+.secondary-btn,
+.danger-btn,
+.primary-btn {
+  padding: 0 12px;
   font-size: 13px;
-  text-align: left;
 }
 
-.fm-table th {
-  background: var(--bg-secondary, #161b22);
-  color: #8b949e;
-  font-weight: 600;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border, #30363d);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+.danger-btn {
+  color: #ffd9d7;
+  background: #321b1e;
+  border-color: #6a3034;
 }
 
-.fm-table td {
-  padding: 10px 24px;
-  border-bottom: 1px solid #21262d;
-  color: #c9d1d9;
-  vertical-align: middle;
+.primary-btn {
+  color: #092016;
+  background: #7cc7a7;
+  border-color: #7cc7a7;
+  font-weight: 700;
 }
 
-.fm-row {
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.fm-row:hover {
-  background: #1f242c;
-}
-
-.fm-name-col-cell {
-  vertical-align: middle;
-}
-
-.file-name-cell {
-  display: flex;
+.selection-bar {
+  display: none;
   align-items: center;
-  gap: 10px;
-  font-weight: 500;
-  color: #f0f6fc;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 22px;
+  border-bottom: 1px solid #253346;
+  background: #14241d;
 }
 
-.file-icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
+.selection-bar.visible {
+  display: flex;
 }
 
-.file-name-txt {
-  max-width: 500px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-.fm-size-cell {
-  vertical-align: middle;
-}
-
-.fm-actions-col-cell {
-  vertical-align: middle;
-}
-
-.fm-actions-cell {
+.selection-summary,
+.selection-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.row-btn {
-  background: #21262d;
-  color: #c9d1d9;
-  border: 1px solid #30363d;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: inline-flex;
+.selection-summary {
+  color: #9eb4c9;
+  font-size: 13px;
+}
+
+.selection-summary strong {
+  color: #f3f6fb;
+}
+
+.file-surface {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+}
+
+.file-surface.drag-over {
+  outline: 2px dashed #7cc7a7;
+  outline-offset: -8px;
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 18, 24, .82);
+  pointer-events: none;
+}
+
+.drag-overlay div {
+  padding: 18px 28px;
+  border-radius: 8px;
+  border: 1px solid #4d8069;
+  color: #bce8d3;
+  background: #14241d;
+}
+
+.list-head,
+.file-row {
+  display: grid;
+  grid-template-columns: 44px minmax(220px, 1fr) 120px 160px;
   align-items: center;
-  gap: 4px;
 }
 
-.row-btn-icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.row-btn:hover {
-  background: #30363d;
-  color: #fff;
-  border-color: #8b949e;
-}
-
-.row-btn.accent {
-  background: var(--accent, #58a6ff);
-  border-color: var(--accent, #58a6ff);
-  color: #fff;
-}
-
-.row-btn.accent:hover {
-  background: #1f85ff;
-  border-color: #1f85ff;
-}
-
-.row-btn.danger {
-  background: transparent;
-  border-color: rgba(248, 81, 73, 0.4);
-  color: #f85149;
-}
-
-.row-btn.danger:hover {
-  background: rgba(248, 81, 73, 0.15);
-  border-color: #f85149;
-}
-
-/* 传输面板样式 */
-.fm-transfer-section {
-  border-top: 1px solid var(--border, #30363d);
-  background: var(--bg-secondary, #161b22);
-  padding: 16px 24px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.transfer-title {
+.list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 42px;
+  background: #121821;
+  border-bottom: 1px solid #252d39;
+  color: #8f9aaa;
   font-size: 12px;
-  color: #8b949e;
-  font-weight: 600;
-  margin-bottom: 12px;
-  text-transform: uppercase;
+  font-weight: 700;
 }
 
-.transfer-list {
+.list-head button {
+  justify-self: start;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.check-cell {
+  display: grid;
+  place-items: center;
+}
+
+.check-cell input {
+  width: 16px;
+  height: 16px;
+  accent-color: #7cc7a7;
+}
+
+.file-row {
+  min-height: 58px;
+  border-bottom: 1px solid #1d2530;
+}
+
+.file-row.folder {
+  cursor: pointer;
+}
+
+.file-row:hover {
+  background: #151c26;
+}
+
+.file-row.selected {
+  background: #14241d;
+}
+
+.file-primary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.file-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #a9b5c4;
+  background: #18202b;
+  border: 1px solid #2c3542;
+  flex: 0 0 auto;
+}
+
+.file-icon.folder {
+  color: #f0c66b;
+  background: #2a2416;
+  border-color: #534322;
+}
+
+.file-icon.apk {
+  color: #7cc7a7;
+  background: #14241d;
+  border-color: #2d5a45;
+}
+
+.file-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-text {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 3px;
 }
 
-.transfer-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  padding: 8px 16px;
-  border-radius: 6px;
-}
-
-.transfer-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: #f0f6fc;
-  max-width: 300px;
+.file-name {
+  color: #f3f6fb;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.transfer-info {
-  font-size: 11px;
-  color: #8b949e;
-  min-width: 90px;
-}
-
-.transfer-progress-bar {
-  flex: 1;
-  height: 6px;
-  background: #21262d;
-  border-radius: 3px;
+.file-path {
+  color: #748094;
+  font-size: 12px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.progress-fill {
-  height: 100%;
-  background: var(--accent, #58a6ff);
-  border-radius: 3px;
-  transition: width 0.1s linear;
+.file-size,
+.file-date {
+  color: #9ba6b6;
+  font-size: 13px;
 }
 
-.close-card {
-  background: none;
-  border: none;
-  color: #8b949e;
+.list-state {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8f9aaa;
+}
+
+.transfer-dock {
+  flex-shrink: 0;
+  max-height: 190px;
+  overflow: auto;
+  border-top: 1px solid #252d39;
+  background: #111720;
+}
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 22px;
+  color: #8f9aaa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dock-head button {
+  border: 0;
+  color: #9eb4c9;
+  background: transparent;
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 4px;
 }
 
-.close-card:hover {
-  color: #f0f6fc;
+.transfer-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 22px 14px;
 }
 
-/* 移动端响应式适配 */
-@media (max-width: 768px) {
-  .fm-page-header {
-    flex-direction: column;
+.transfer-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px 26px;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2c3542;
+  background: #0f141c;
+}
+
+.transfer-item.success { border-color: #2d5a45; }
+.transfer-item.failed { border-color: #6a3034; }
+
+.transfer-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.transfer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #f3f6fb;
+  font-size: 13px;
+}
+
+.transfer-status {
+  color: #8f9aaa;
+  font-size: 12px;
+}
+
+.transfer-progress {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #252d39;
+}
+
+.transfer-progress div {
+  height: 100%;
+  background: #7cc7a7;
+  transition: width .12s linear;
+}
+
+.transfer-item button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  color: #8f9aaa;
+  background: transparent;
+  cursor: pointer;
+}
+
+@media (max-width: 820px) {
+  .fm-header {
     align-items: stretch;
-    gap: 12px;
-    padding: 12px 16px;
+    flex-direction: column;
+    padding: 12px;
   }
 
-  .header-title-group {
-    justify-content: space-between;
+  .fm-title-block p {
+    max-width: 84vw;
   }
 
-  .header-title {
-    font-size: 14px;
-  }
-
-  .header-icon-svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .device-selector-group {
-    width: 100%;
-    justify-content: space-between;
-    gap: 8px;
+  .fm-device-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .device-select {
-    flex: 1;
-    max-width: 160px;
-    padding: 4px 8px;
-    font-size: 13px;
+    min-width: 0;
+    width: 100%;
   }
 
-  .connection-status {
-    padding: 4px 8px;
-    font-size: 11px;
-  }
-
-  /* 导航及操作栏移动端单行紧凑排列 */
-  .fm-nav-bar {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
+  .toolbar {
+    padding: 10px 12px;
     gap: 6px;
-    padding: 8px 12px;
+    flex-wrap: wrap;
   }
 
-  .fm-path-display {
-    flex: 1;
-    padding: 4px 6px;
+  .path-box {
+    order: 2;
+    flex-basis: 100%;
   }
 
-  .path-label {
-    display: none; /* 移动端隐藏路径标签 */
+  .upload-btn {
+    width: 38px;
+    padding: 0;
   }
 
-  .path-input {
-    font-size: 12px;
-    padding: 4px 8px;
-    height: 32px;
+  .upload-btn span {
+    display: none;
   }
 
-  .btn-text {
-    display: none; /* 移动端只保留小图标按钮 */
+  .selection-bar.visible {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 10px 12px;
   }
 
-  .svg-btn-icon {
-    margin-right: 0 !important;
-  }
-
-  /* 移动端统一调整操作按钮 */
-  .fm-back-btn, .fm-action-btn, .fm-upload-label {
-    padding: 6px 0;
-    font-size: 14px;
-    justify-content: center;
-    align-items: center;
-    width: 34px;
-    height: 32px;
-    flex-shrink: 0;
-    text-align: center;
-  }
-
-  .fm-table th, .fm-table td {
-    padding: 8px 6px;
-    font-size: 13px;
-  }
-
-  .fm-table th:nth-child(1), .fm-table td:nth-child(1) {
-    width: 60%;
-    max-width: 0;
-  }
-
-  .fm-table th:nth-child(2), .fm-table td:nth-child(2) {
-    width: 15%;
-    text-align: center;
-    white-space: nowrap;
-  }
-
-  .fm-table th:nth-child(3), .fm-table td:nth-child(3) {
-    width: 25%;
-    text-align: right;
-  }
-
-  .file-name-txt {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .fm-actions-cell {
-    display: flex;
-    justify-content: flex-end;
-    flex-wrap: nowrap !important;
+  .selection-actions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
   }
 
-  .row-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0 !important;
-    display: inline-flex;
+  .selection-actions button {
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .list-head {
+    display: none;
+  }
+
+  .file-list {
+    padding: 8px;
+  }
+
+  .file-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-areas:
+      "check primary"
+      "check meta";
     align-items: center;
-    justify-content: center;
-    border-radius: 50% !important;
-    flex-shrink: 0;
+    min-height: 72px;
+    margin-bottom: 8px;
+    border: 1px solid #252d39;
+    border-radius: 8px;
+    background: #111720;
   }
 
-  .row-btn-text {
-    display: none !important;
+  .file-row .check-cell { grid-area: check; }
+  .file-primary { grid-area: primary; padding-right: 10px; }
+  .file-size {
+    grid-area: meta;
+    padding-left: 46px;
+  }
+  .file-date {
+    display: none;
   }
 
-  .row-btn-icon {
-    width: 14px;
-    height: 14px;
+  .file-path {
+    display: none;
   }
 
-  .fm-transfer-section {
-    padding: 10px 16px;
-    max-height: 120px;
-  }
-
-  .transfer-card {
-    padding: 6px 12px;
-    gap: 8px;
-  }
-
-  .transfer-name {
-    max-width: 80px;
+  .transfer-item {
+    grid-template-columns: minmax(0, 1fr) 80px 24px;
   }
 }
 </style>

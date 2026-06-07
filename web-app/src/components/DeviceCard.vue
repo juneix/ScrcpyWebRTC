@@ -2,10 +2,12 @@
   <div class="device-card" @click="onCardClick">
     <div class="preview-area" :class="{ 'is-landscape': isLandscape }">
       <!-- 展示快照或占位图 -->
-      <img v-if="device.snapshot" :src="device.snapshot" class="snapshot-img" @load="onImageLoad" />
+      <img v-if="currentSnapshot" :src="currentSnapshot" class="snapshot-img" @load="onImageLoad" />
       <div v-else class="snapshot-placeholder">
         <span class="vm-icon">💻</span>
       </div>
+      <!-- 隐藏的预加载图片 -->
+      <img v-if="nextSnapshotUrl" :src="nextSnapshotUrl" style="display: none;" @load="onNextSnapshotLoaded" />
       <div class="overlay">
         <span class="play-hint">点击进入控制</span>
       </div>
@@ -67,7 +69,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useDeviceStore } from '@/stores/devices'
 
 const props = defineProps({
@@ -85,6 +87,29 @@ const emit = defineEmits(['connect', 'settings', 'edit-tags'])
 const deviceStore = useDeviceStore()
 const showMenu = ref(false)
 const isLandscape = ref(false)
+
+const currentSnapshot = ref(props.device.snapshot || '')
+const nextSnapshotUrl = ref('')
+
+watch(() => props.device.snapshot, (newSnapshot) => {
+  if (newSnapshot) {
+    if (!currentSnapshot.value) {
+      currentSnapshot.value = newSnapshot
+    } else {
+      nextSnapshotUrl.value = newSnapshot
+    }
+  } else {
+    currentSnapshot.value = ''
+    nextSnapshotUrl.value = ''
+  }
+})
+
+function onNextSnapshotLoaded() {
+  if (nextSnapshotUrl.value) {
+    currentSnapshot.value = nextSnapshotUrl.value
+    nextSnapshotUrl.value = ''
+  }
+}
 
 function onImageLoad(event) {
   const img = event.target
@@ -250,6 +275,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   border-top: 1px solid var(--border);
   position: relative;
   flex-shrink: 0;
+  height: 80px; /* 固定高度，防止不同卡片高度参差不齐导致按钮错位 */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .device-main-info {
@@ -299,10 +329,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 .device-tags {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* 强制不折行 */
   gap: 5px;
+  overflow: hidden; /* 溢出隐藏 */
   padding-right: 28px;
-  margin-top: 8px;
+  margin-top: auto; /* 自动推到最底端 */
 }
 
 .device-tag {
@@ -330,42 +361,44 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 /* 菜单按钮 */
 .menu-btn {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 24px;
-  height: 24px;
+  right: 12px;
+  bottom: 12px; /* 锁死在右下角，因为页脚固定高度，所以在纵向上也是完全对齐的 */
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08); /* 明显的磨砂质感背景 */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
   cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.15s ease;
+  opacity: 0.8;
+  transition: all 0.2s ease;
 }
 
 .menu-btn:hover {
   opacity: 1;
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: var(--accent);
 }
 
 .menu-btn svg {
   width: 14px;
   height: 14px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 /* 下拉菜单 */
 .card-menu {
   position: absolute;
-  bottom: 36px;
-  right: 8px;
+  bottom: 42px; /* 呈现在右下角按钮的上方 */
+  right: 12px;
   min-width: 140px;
-  background: var(--bg-surface);
+  background: #161b22 !important; /* 强制不透明底色 */
+  opacity: 1 !important; /* 强制不透明 */
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 100;
   padding: 4px;
 }

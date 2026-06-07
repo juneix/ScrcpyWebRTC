@@ -13,6 +13,61 @@ export const useDeviceStore = defineStore('devices', () => {
       .sort((a, b) => a.id.localeCompare(b.id)) // 稳定升序排序
   )
 
+  const offlineDevices = ref([])
+
+
+  // 辅助函数：根据当前活跃的 ID 列表更新在线和离线列表
+  function processDeviceList(activeIds) {
+    // 1. 找出刚刚掉线（原本在线但在新活跃列表中找不到）的设备
+    devices.value.forEach(d => {
+      if (!activeIds.includes(d.id)) {
+        const offlineDev = {
+          ...d,
+          status: 'offline',
+          lastOffline: new Date().toISOString()
+        }
+        const idx = offlineDevices.value.findIndex(od => od.id === d.id)
+        if (idx === -1) {
+          offlineDevices.value.push(offlineDev)
+        } else {
+          // 保留或更新最新的属性
+          offlineDevices.value[idx] = { ...offlineDevices.value[idx], ...offlineDev }
+        }
+      }
+    })
+
+    // 2. 过滤在线列表，只保留当前活跃的设备
+    const newOnlineList = devices.value.filter(d => activeIds.includes(d.id))
+
+    // 3. 处理重新上线或新上线的设备
+    activeIds.forEach(id => {
+      const existingOnline = newOnlineList.find(d => d.id === id)
+      if (!existingOnline) {
+        const existingOfflineIdx = offlineDevices.value.findIndex(d => d.id === id)
+        if (existingOfflineIdx > -1) {
+          // 从离线列表移除并移回在线列表
+          const resurrected = offlineDevices.value.splice(existingOfflineIdx, 1)[0]
+          newOnlineList.push({
+            ...resurrected,
+            status: 'online',
+            lastSeen: new Date().toISOString()
+          })
+        } else {
+          // 全新上线的设备
+          newOnlineList.push({
+            id,
+            status: 'online',
+            snapshot: null,
+            lastSeen: new Date().toISOString()
+          })
+        }
+      }
+    })
+
+    newOnlineList.sort((a, b) => a.id.localeCompare(b.id))
+    devices.value = newOnlineList
+  }
+
   async function fetchDevices() {
     loading.value = true
     error.value = null
@@ -21,21 +76,10 @@ export const useDeviceStore = defineStore('devices', () => {
       const data = await res.json()
       
       if (Array.isArray(data)) {
-        // 转换并排序
-        const newList = data.map(id => ({
-          id: typeof id === 'string' ? id : id.device_id,
-          status: 'online'
-        })).sort((a, b) => a.id.localeCompare(b.id))
-        
-        // 只有当 ID 列表发生变化时才更新（防止 UI 频繁重绘）
-        const oldIds = devices.value.map(d => d.id).join(',')
-        const newIds = newList.map(d => d.id).join(',')
-        
-        if (oldIds !== newIds) {
-          devices.value = newList
-        }
+        const activeIds = data.map(id => typeof id === 'string' ? id : id.device_id)
+        processDeviceList(activeIds)
       } else {
-        devices.value = []
+        processDeviceList([])
       }
     } catch (e) {
       error.value = e.message
@@ -48,7 +92,12 @@ export const useDeviceStore = defineStore('devices', () => {
   function addDevice(device) {
     const existing = devices.value.find(d => d.id === device.id)
     if (!existing) {
-      devices.value.push({ ...device, status: 'online' })
+      // 检查是否在离线列表中
+      const idx = offlineDevices.value.findIndex(d => d.id === device.id)
+      if (idx > -1) {
+        offlineDevices.value.splice(idx, 1)
+      }
+      devices.value.push({ ...device, status: 'online', lastSeen: new Date().toISOString() })
       devices.value.sort((a, b) => a.id.localeCompare(b.id))
     }
   }
@@ -58,30 +107,17 @@ export const useDeviceStore = defineStore('devices', () => {
     if (index > -1) {
       devices.value.splice(index, 1)
     }
+    const idx = offlineDevices.value.findIndex(d => d.id === deviceId)
+    if (idx > -1) {
+      offlineDevices.value.splice(idx, 1)
+    }
   }
 
   function updateFromList(idList) {
     if (!Array.isArray(idList)) return
-    
-    // 排序并转换
-    const newList = idList.map(id => {
-      // 尝试保留旧的快照数据
-      const old = devices.value.find(d => d.id === (typeof id === 'string' ? id : id.device_id))
-      return {
-        id: typeof id === 'string' ? id : id.device_id,
-        status: 'online',
-        snapshot: old ? old.snapshot : null
-      }
-    }).sort((a, b) => a.id.localeCompare(b.id))
-    
-    // 对比是否有变化
-    const oldIds = devices.value.map(d => d.id).join(',')
-    const newIds = newList.map(d => d.id).join(',')
-    
-    if (oldIds !== newIds) {
-      devices.value = newList
-      debugLog('[Store] Device list updated via broadcast:', idList)
-    }
+    const activeIds = idList.map(id => typeof id === 'string' ? id : id.device_id)
+    processDeviceList(activeIds)
+    debugLog('[Store] Device list updated via broadcast:', idList)
   }
 
   function updateSnapshot(deviceId, base64Data) {
@@ -115,13 +151,64 @@ export const useDeviceStore = defineStore('devices', () => {
     activeWebRTC.value = null
   }
 
+  const deviceHistory = ref({})
+
+  function updateMetrics(deviceId, metrics) {
+    const index = devices.value.findIndex(d => d.id === deviceId)
+    if (index > -1) {
+      devices.value[index].metrics = metrics
+      devices.value = [...devices.value]
+    }
+
+    if (!deviceHistory.value[deviceId]) {
+      deviceHistory.value[deviceId] = {
+        cpu: [],
+        memory: [],
+        disk: [],
+        temp: [],
+        downSpeed: [],
+        upSpeed: [],
+        timestamps: []
+      }
+    }
+
+    const history = deviceHistory.value[deviceId]
+    const now = new Date()
+    const hh = String(now.getHours()).padStart(2, '0')
+    const mm = String(now.getMinutes()).padStart(2, '0')
+    const ss = String(now.getSeconds()).padStart(2, '0')
+    const timeStr = `${hh}:${mm}:${ss}`
+
+    history.cpu.push(metrics.cpu || 0)
+    history.memory.push(metrics.memory_percent || 0)
+    history.disk.push(metrics.disk_percent || 0)
+    history.temp.push(metrics.temperature || 0)
+    history.downSpeed.push(metrics.download_speed || 0)
+    history.upSpeed.push(metrics.upload_speed || 0)
+    history.timestamps.push(timeStr)
+
+    if (history.cpu.length > 360) {
+      history.cpu.shift()
+      history.memory.shift()
+      history.disk.shift()
+      history.temp.shift()
+      history.downSpeed.shift()
+      history.upSpeed.shift()
+      history.timestamps.shift()
+    }
+
+    // 显式触发响应式引用变更以更新大盘折线图
+    deviceHistory.value = { ...deviceHistory.value }
+  }
+
   let globalWs = null
 
   function initSignaling() {
     if (globalWs) return
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${location.host}/connect_client`
+    const token = localStorage.getItem('auth_token') || ''
+    const url = `${protocol}//${location.host}/connect_client?token=${encodeURIComponent(token)}`
     
     debugLog('[Store] Connecting to global signaling:', url)
     globalWs = new WebSocket(url)
@@ -134,8 +221,13 @@ export const useDeviceStore = defineStore('devices', () => {
         } else if (msg.message_type === 'snapshot_updated') {
           // HTTP 模式下的更新通知
           handleSnapshotUpdated(msg.device_id, msg.url)
+        } else if (msg.message_type === 'global_settings_updated') {
+          localStorage.setItem('cloudphone_settings', JSON.stringify(msg.settings))
+          window.dispatchEvent(new CustomEvent('cloudphone-settings-updated', { detail: { deviceId: '' } }))
         } else if (msg.message_type === 'device_list_update') {
           updateFromList(msg.devices)
+        } else if (msg.type === 'device_metrics') {
+          updateMetrics(msg.device_id, msg.metrics)
         }
       } catch (e) {
         console.error('[Store] Message error:', e)
@@ -162,8 +254,9 @@ export const useDeviceStore = defineStore('devices', () => {
   function handleSnapshotUpdated(deviceId, url) {
     const index = devices.value.findIndex(d => d.id === deviceId)
     if (index > -1) {
-      // 增加时间戳防止浏览器缓存不刷新
-      devices.value[index].snapshot = url + '?t=' + Date.now()
+      const token = localStorage.getItem('auth_token') || ''
+      // 增加时间戳防止浏览器缓存不刷新，并附加 token 进行鉴权
+      devices.value[index].snapshot = url + '?t=' + Date.now() + '&token=' + encodeURIComponent(token)
       devices.value = [...devices.value]
       debugLog(`[Store] Snapshot URL updated for ${deviceId}`)
     }
@@ -171,17 +264,20 @@ export const useDeviceStore = defineStore('devices', () => {
 
   return {
     devices,
+    offlineDevices,
     loading,
     error,
     activeDeviceId,
     activeWebRTC,
     activeDevice,
     onlineDevices,
+    deviceHistory,
     fetchDevices,
     addDevice,
     removeDevice,
     updateFromList,
     updateSnapshot,
+    updateMetrics,
     initSignaling, // 导出
     quitAgent,
     setActiveDevice,

@@ -158,7 +158,9 @@ async function setupDeviceConnection(deviceId) {
         audio_source: settings.audioSource,
         audio_dup: settings.audioDup,
         audio_low_latency: settings.audioLowLatency,
-        debug: settings.debug
+        debug: settings.debug,
+        snapshot_interval: settings.snapshotInterval,
+        power_off: settings.powerOff
       }
 
       webrtc = useWebRTC(deviceId, scrcpyOptions)

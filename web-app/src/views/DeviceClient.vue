@@ -41,13 +41,14 @@
           @input="onKeyboardInput"
           @keydown="onKeyboardKeyDown"
           @keyup="onKeyboardKeyUp"
+          @paste="onKeyboardPaste"
           @compositionstart="onCompositionStart"
           @compositionend="onCompositionEnd"
         ></textarea>
 
 
         <!-- 视频流状态面板 (左上角) -->
-        <div v-if="videoStats" class="stats-badge">
+        <div v-if="videoStats && localSettings.showStats !== false" class="stats-badge">
           <span class="stat-fps">{{ videoStats.fps }}fps</span>
           <span class="stat-delimiter">|</span>
           <span class="stat-delay" title="网络延迟(RTT) + 缓冲(JB) + 解码 + 云端处理">E2E ~{{ videoStats.e2eDelay }}ms</span>
@@ -56,11 +57,10 @@
           <span class="stat-delimiter">|</span>
           <span class="stat-delay" title="网络往返延迟">RTT {{ videoStats.rtt }}ms</span>
           <span class="stat-delimiter">|</span>
-          <span class="stat-bitrate">{{ videoStats.bitrate }}kbps</span>
+          <span class="stat-bitrate" title="当前视频接收码率">{{ videoStats.bitrate > 1000 ? (videoStats.bitrate / 1000).toFixed(1) + ' Mbps' : videoStats.bitrate + ' kbps' }}</span>
           <span class="stat-delimiter">|</span>
-          <span :class="['stat-pli', { 'stat-warn': videoStats.pliCount > 0 }]">PLI {{ videoStats.pliCount }}</span>
+          <span class="stat-conn-type" title="WebRTC 传输通道类型">{{ videoStats.connectionType || 'UDP p2p' }}</span>
           <span class="stat-delimiter">|</span>
-          <span :class="['stat-pause', { 'stat-warn': videoStats.pauseCount > 0 }]">Pause {{ videoStats.pauseCount }}</span>
           <span :class="['stat-lost', { 'stat-warn': videoStats.lostCount > 0 }]">Lost {{ videoStats.lostCount }}</span>
         </div>
 
@@ -357,7 +357,13 @@ const videoElement = ref(null)
 const hiddenInput = ref(null)
 const containerRef = ref(null)
 const isFullscreen = ref(false)
-let lastSentClipboardText = ''
+const CLIPBOARD_SOURCE_LOCAL = 'local'
+const CLIPBOARD_SOURCE_DEVICE = 'device'
+const CLIPBOARD_SOURCE_KEYBOARD = 'keyboard'
+const CLIPBOARD_ECHO_TTL_MS = 5000
+let lastLocalClipboardText = ''
+let lastDeviceClipboardText = ''
+const pendingClipboardWrites = []
 const showScreenshot = ref(false)
 const screenshotData = ref(null)
 const showSettingsModal = ref(false)
@@ -378,7 +384,9 @@ const scrcpyOptions = computed(() => {
     audio_source: localSettings.value.audioSource,
     audio_dup: localSettings.value.audioDup,
     audio_low_latency: localSettings.value.audioLowLatency,
-    debug: localSettings.value.debug
+    debug: localSettings.value.debug,
+    snapshot_interval: localSettings.value.snapshotInterval,
+    power_off: localSettings.value.powerOff
   }
 })
 
@@ -519,27 +527,63 @@ function onGlobalKeyDown(e) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   if (!videoNaturalSize.value.width) return;
 
-  // 快捷键粘贴：Ctrl+V 或 Cmd+V
-  const isPasteShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v';
-  if (isPasteShortcut) {
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(text => {
-        if (text) {
-          lastSentClipboardText = text
-          webrtc.setClipboard(text, true) // 发送并立即在设备端执行粘贴
-          debugLog('[Clipboard] Shortcut paste triggered & sent: ' + text)
-        }
-      }).catch(err => {
-        debugLog('[Clipboard] Failed to read clipboard on shortcut paste: ' + err)
-      })
-    }
-    e.preventDefault();
-    return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+    return
   }
 
   if (keymapEngine.handleKeyEvent(e, true, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
     e.preventDefault();
   }
+}
+
+function onGlobalPaste(e) {
+  if (keymapStore.isEditMode) return
+  const tag = e.target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return
+  if (!videoNaturalSize.value.width) return
+  const text = e.clipboardData?.getData('text')
+  if (!text) return
+  e.preventDefault()
+  setDeviceClipboard(text, { paste: true, source: CLIPBOARD_SOURCE_LOCAL })
+  debugLog('[Clipboard] Global paste routed to device')
+}
+
+function prunePendingClipboardWrites() {
+  const now = Date.now()
+  while (pendingClipboardWrites.length > 0 && pendingClipboardWrites[0].expiresAt <= now) {
+    pendingClipboardWrites.shift()
+  }
+}
+
+function rememberClipboardWrite(text, source, suppressBroadcast = false) {
+  if (!text) return
+  prunePendingClipboardWrites()
+  pendingClipboardWrites.push({
+    text,
+    source,
+    suppressBroadcast,
+    expiresAt: Date.now() + CLIPBOARD_ECHO_TTL_MS
+  })
+}
+
+function consumeClipboardWrite(text) {
+  prunePendingClipboardWrites()
+  const index = pendingClipboardWrites.findIndex(entry => entry.text === text)
+  if (index === -1) return null
+  const [entry] = pendingClipboardWrites.splice(index, 1)
+  return entry
+}
+
+function setDeviceClipboard(text, { paste = false, source = CLIPBOARD_SOURCE_LOCAL, suppressBroadcast = false } = {}) {
+  if (!text) return false
+  const ok = webrtc.setClipboard(text, { paste, source, suppressBroadcast })
+  if (ok) {
+    rememberClipboardWrite(text, source, suppressBroadcast)
+    if (source === CLIPBOARD_SOURCE_LOCAL) {
+      lastLocalClipboardText = text
+    }
+  }
+  return ok
 }
 
 function onGlobalKeyUp(e) {
@@ -613,21 +657,35 @@ function setupWebRTC() {
   })
 
   // 设置剪切板回调
-  webrtc.onClipboard((text) => {
-    if (text === lastSentClipboardText) {
+  webrtc.onClipboard((event) => {
+    const text = event?.text || ''
+    if (!text) {
       return
     }
-    lastSentClipboardText = text // 更新缓存，防止回传环路
+    const source = event.source || CLIPBOARD_SOURCE_DEVICE
+    const echo = consumeClipboardWrite(text)
+    if (source === CLIPBOARD_SOURCE_KEYBOARD || echo?.suppressBroadcast) {
+      debugLog('[Clipboard] Ignored keyboard/temporary clipboard echo')
+      return
+    }
+    if (echo) {
+      lastDeviceClipboardText = text
+      debugLog('[Clipboard] Ignored local clipboard echo from device')
+      return
+    }
+    if (text === lastDeviceClipboardText) {
+      return
+    }
+    lastDeviceClipboardText = text
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(() => {
+        lastLocalClipboardText = text
         debugLog('[Clipboard] Auto synced from device')
       }).catch(err => {
         debugWarn('[Clipboard] Failed to auto sync to local:', err)
-        alert('收到设备剪切板内容 (点击确定复制)：\n' + text)
-        // 回退方案：如果自动写入失败，通过 alert 弹出让用户看到
       })
     } else {
-      alert('收到设备剪切板内容：\n' + text)
+      debugWarn('[Clipboard] Browser writeText API is unavailable')
     }
   })
 
@@ -648,11 +706,11 @@ const handlePopState = (e) => {
 }
 
 function onWindowFocus() {
+  if (isComposingText.value) return
   if (navigator.clipboard && navigator.clipboard.readText) {
     navigator.clipboard.readText().then(text => {
-      if (text && text !== lastSentClipboardText) {
-        lastSentClipboardText = text
-        webrtc.setClipboard(text, false) // 仅静默同步到设备缓存，不自动执行粘贴动作
+      if (text && text !== lastLocalClipboardText) {
+        setDeviceClipboard(text, { paste: false, source: CLIPBOARD_SOURCE_LOCAL })
         debugLog('[Clipboard] Auto synced local clipboard to device')
       }
     }).catch(() => {
@@ -661,10 +719,26 @@ function onWindowFocus() {
   }
 }
 
+function handleSettingsUpdated(event) {
+  const updatedId = event.detail?.deviceId
+  if (!updatedId || updatedId === currentId.value) {
+    console.log('[DeviceClient] Settings updated globally or for current device, reloading...')
+    localSettings.value = getDeviceSettings(currentId.value)
+    pageAudioMuted.value = Boolean(localSettings.value.pageAudioMuted)
+    if (currentId.value) {
+      webrtc.disconnect()
+      closeAdb()
+      webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+      deviceStore.setActiveWebRTC(webrtc)
+      setupWebRTC()
+    }
+  }
+}
+
 onMounted(() => {
-  // Push a fake state to the history so the back button can be caught
   window.history.pushState({ panel: 'open' }, '')
   window.addEventListener('popstate', handlePopState)
+  window.addEventListener('cloudphone-settings-updated', handleSettingsUpdated)
   
   setupWebRTC()
   document.addEventListener('fullscreenchange', () => {
@@ -672,22 +746,22 @@ onMounted(() => {
   })
   document.addEventListener('keydown', onGlobalKeyDown)
   document.addEventListener('keyup', onGlobalKeyUp)
+  document.addEventListener('paste', onGlobalPaste)
   document.addEventListener('wheel', onGlobalWheel, { passive: false })
-  // 定期检查布局
   layoutInterval = setInterval(checkAndRecommendLayout, 2000)
-  // 监听窗口大小变化
   window.addEventListener('resize', updateMobileState)
-  // 监听窗口焦点变化实现剪切板自动同步
   window.addEventListener('focus', onWindowFocus)
 })
 
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState)
+  window.removeEventListener('cloudphone-settings-updated', handleSettingsUpdated)
   webrtc.disconnect()
   deviceStore.setActiveWebRTC(null)
   closeAdb()
   document.removeEventListener('keydown', onGlobalKeyDown)
   document.removeEventListener('keyup', onGlobalKeyUp)
+  document.removeEventListener('paste', onGlobalPaste)
   document.removeEventListener('wheel', onGlobalWheel)
   if (layoutInterval) clearInterval(layoutInterval)
   if (statsInterval) clearInterval(statsInterval)
@@ -699,24 +773,21 @@ function sendClipboardToDevice() {
   if (navigator.clipboard && navigator.clipboard.readText) {
     navigator.clipboard.readText().then(text => {
       if (text) {
-        lastSentClipboardText = text
-        const ok = webrtc.setClipboard(text, true)
+        const ok = setDeviceClipboard(text, { paste: true, source: CLIPBOARD_SOURCE_LOCAL })
         if (ok) debugLog('[Clipboard] Sent to device')
       } else {
         alert('本地剪切板为空')
       }
     }).catch(err => {
-      const text = prompt('请输入要发送到设备的剪切板内容：', lastSentClipboardText)
+      const text = prompt('请输入要发送到设备的剪切板内容：', lastLocalClipboardText)
       if (text) {
-        lastSentClipboardText = text
-        webrtc.setClipboard(text, true)
+        setDeviceClipboard(text, { paste: true, source: CLIPBOARD_SOURCE_LOCAL })
       }
     })
   } else {
-    const text = prompt('请输入要发送到设备的剪切板内容：', lastSentClipboardText)
+    const text = prompt('请输入要发送到设备的剪切板内容：', lastLocalClipboardText)
     if (text) {
-      lastSentClipboardText = text
-      webrtc.setClipboard(text, true)
+      setDeviceClipboard(text, { paste: true, source: CLIPBOARD_SOURCE_LOCAL })
     }
   }
 }
@@ -891,6 +962,10 @@ function onKeyboardKeyDown(e) {
   if (keymapStore.isEditMode) return
   if (!videoNaturalSize.value.width) return
 
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+    return
+  }
+
   // 1. 尝试触发按键映射 (Keymapping)
   if (keymapEngine.handleKeyEvent(e, true, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
     debugLog('[Keyboard] Blocked by Keymapping:', e.key)
@@ -899,26 +974,7 @@ function onKeyboardKeyDown(e) {
     return
   }
 
-  // 2. 快捷键粘贴：Ctrl+V 或 Cmd+V (由于焦点可能在此处，同样拦截)
-  const isPasteShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v'
-  if (isPasteShortcut) {
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(text => {
-        if (text) {
-          lastSentClipboardText = text
-          webrtc.setClipboard(text, true)
-          debugLog('[Clipboard] Hidden input shortcut paste: ' + text)
-        }
-      }).catch(err => {
-        debugLog('[Clipboard] Failed to read clipboard on hidden input shortcut paste: ' + err)
-      })
-    }
-    e.preventDefault()
-    e.stopPropagation()
-    return
-  }
-
-  // 3. 处理控制键 (Inject Keycode)
+  // 2. 处理控制键 (Inject Keycode)
   const androidCode = CONTROL_KEY_MAP[e.key]
   if (androidCode !== undefined) {
     debugLog('[Keyboard] Injecting keycode DOWN:', androidCode, e.key)
@@ -979,6 +1035,16 @@ function onKeyboardInput(e) {
     // 立即清空输入框
     e.target.value = ''
   }
+}
+
+function onKeyboardPaste(e) {
+  if (keymapStore.isEditMode) return
+  if (!videoNaturalSize.value.width) return
+  const text = e.clipboardData?.getData('text')
+  if (!text) return
+  e.preventDefault()
+  setDeviceClipboard(text, { paste: true, source: CLIPBOARD_SOURCE_LOCAL })
+  debugLog('[Keyboard] paste event routed to device clipboard')
 }
 
 let mouseDown = false

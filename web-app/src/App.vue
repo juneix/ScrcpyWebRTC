@@ -1,5 +1,8 @@
 <template>
-  <div class="app-container" :class="{ 'is-resizing': isResizing }">
+  <div v-if="!authStore.isLoggedIn" style="width: 100vw; height: 100vh;">
+    <Login />
+  </div>
+  <div v-else class="app-container" :class="{ 'is-resizing': isResizing }">
     <!-- 1. 全局侧边导航 (仅PC显示) -->
     <nav class="side-nav" :class="{ expanded: isNavExpanded }" v-if="!isMobile">
       <button class="nav-brand" @click="isNavExpanded = !isNavExpanded" :title="isNavExpanded ? '收起侧边栏' : '展开侧边栏'">
@@ -15,12 +18,20 @@
         </span>
       </button>
       <div class="nav-links">
-        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage }">
+        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage }">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
             <line x1="12" y1="18" x2="12.01" y2="18"></line>
           </svg>
           <span class="nav-item-text">虚机</span>
+        </a>
+        <a href="javascript:void(0)" @click="navigateTo('/monitor')" class="nav-item" :class="{ active: showMonitorPage }">
+          <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+          <span class="nav-item-text">大盘</span>
         </a>
         <a href="javascript:void(0)" @click="navigateTo('/files')" class="nav-item" :class="{ active: showFilePage }">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -38,8 +49,25 @@
           </svg>
           <span class="nav-item-text">部署</span>
         </a>
+        <a href="javascript:void(0)" @click="navigateTo('/admin')" class="nav-item" :class="{ active: showUserAdminPage }" v-if="authStore.role === 'admin'">
+          <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          <span class="nav-item-text">管理</span>
+        </a>
+        <a href="javascript:void(0)" @click="handleLogout" class="nav-item logout-nav-item" title="退出登录">
+          <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          <span class="nav-item-text">退出</span>
+        </a>
       </div>
-      <div class="nav-tag-group" v-if="!showDeployPage && !showFilePage">
+      <div class="nav-tag-group" v-if="!showDeployPage && !showFilePage && !showMonitorPage">
         <div class="nav-tag-group-title">
           <span>标签</span>
           <button class="nav-tag-manage-btn" @click="openTagManager">
@@ -77,15 +105,25 @@
     <!-- 2. 主内容区域 -->
     <main class="main-content" id="main-layout-content">
       <header class="top-bar" v-if="!isMobile">
-        <h1 class="page-title">{{ showDeployPage ? '云端自动化部署' : (showFilePage ? '云设备文件中心' : '云虚机矩阵') }}</h1>
-        <div class="global-status">系统实时同步中</div>
+        <h1 class="page-title">{{ showDeployPage ? '云端自动化部署' : (showFilePage ? '云设备文件中心' : (showMonitorPage ? '云监控实时大盘' : '云虚机矩阵')) }}</h1>
+        <div class="header-user-card">
+          <div class="user-avatar" :title="authStore.username + ' (' + (authStore.role === 'admin' ? '管理员' : '普通用户') + ')'">
+            {{ authStore.username ? authStore.username.substring(0, 1).toUpperCase() : 'U' }}
+          </div>
+          <span class="user-name" :title="authStore.username">{{ authStore.username }}</span>
+          <span class="user-role-badge" :class="authStore.role">
+            {{ authStore.role === 'admin' ? '管理员' : '普通用户' }}
+          </span>
+        </div>
       </header>
       
       <section class="viewport">
         <transition name="fade" mode="out-in">
-          <DeviceList v-if="!showDeployPage && !showFilePage && !showTerminalPage" />
+          <DeviceList v-if="!showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage" />
+          <UserAdminPage v-else-if="showUserAdminPage" />
           <DeployPage v-else-if="showDeployPage" />
           <FileManagerPage v-else-if="showFilePage" />
+          <Dashboard v-else-if="showMonitorPage" />
           <TerminalPage v-else />
         </transition>
       </section>
@@ -95,7 +133,7 @@
     <aside 
       class="control-panel-wrapper" 
       :class="{ 
-        'is-open': !!deviceStore.activeDeviceId && !showFilePage && !showTerminalPage && !showDeployPage,
+        'is-open': !!deviceStore.activeDeviceId && !showTerminalPage && !showDeployPage && !showMonitorPage,
         'is-floating': isFloating && !isMobile,
         'is-mobile': isMobile
       }"
@@ -158,13 +196,21 @@
     </aside>
 
     <!-- 4. 移动端底部导航栏 (仅在主视图显示活跃虚机视频时才隐藏，在文件、终端或列表页均保持可见) -->
-    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || !deviceStore.activeDeviceId)">
-      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage }">
+    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || showMonitorPage || !deviceStore.activeDeviceId)">
+      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage }">
         <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
           <line x1="12" y1="18" x2="12.01" y2="18"></line>
         </svg>
         <span class="mobile-nav-text">虚机</span>
+      </button>
+      <button @click="navigateTo('/monitor')" class="mobile-nav-item" :class="{ active: showMonitorPage }">
+        <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        <span class="mobile-nav-text">大盘</span>
       </button>
       <button @click="navigateTo('/files')" class="mobile-nav-item" :class="{ active: showFilePage }">
         <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,14 +233,23 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useDeviceStore } from '@/stores/devices'
 import { useTagStore } from '@/stores/tags'
+import { useAuthStore } from '@/stores/auth'
 import DeviceClient from '@/views/DeviceClient.vue'
 import DeviceList from '@/views/DeviceList.vue'
 import DeployPage from '@/views/DeployPage.vue'
 import FileManagerPage from '@/views/FileManagerPage.vue'
 import TerminalPage from '@/views/TerminalPage.vue'
+import Dashboard from '@/views/Dashboard.vue'
+import Login from '@/views/Login.vue'
+import UserAdminPage from '@/views/UserAdminPage.vue'
 
 const deviceStore = useDeviceStore()
 const tagStore = useTagStore()
+const authStore = useAuthStore()
+
+function handleLogout() {
+  authStore.logout()
+}
 
 const isMobile = ref(window.innerWidth <= 1024)
 const isFloating = ref(false)
@@ -203,6 +258,8 @@ const userAdjusted = ref(false)
 const showDeployPage = ref(false)
 const showFilePage = ref(false)
 const showTerminalPage = ref(false)
+const showMonitorPage = ref(false)
+const showUserAdminPage = ref(false)
 const isNavExpanded = ref(false)
 
 const floatPos = ref({ x: 100, y: 100 })
@@ -212,8 +269,8 @@ const sideWidth = ref(420)
 // 动态样式计算
 const panelStyle = computed(() => {
   if (isMobile.value) return {}
-  // 面板关闭或者处于文件/终端/部署页面时不设置宽度
-  if (!deviceStore.activeDeviceId || showFilePage.value || showTerminalPage.value || showDeployPage.value) return { width: '0px' }
+  // 面板关闭或者处于文件/终端/部署/大盘页面时不设置宽度
+  if (!deviceStore.activeDeviceId || showTerminalPage.value || showDeployPage.value || showMonitorPage.value) return { width: '0px' }
   if (isFloating.value) {
     return {
       position: 'fixed',
@@ -313,28 +370,42 @@ function getTagDeviceCount(tagId) {
   return deviceStore.devices.filter(device => tagStore.getTagIdsForDevice(device.id).includes(tagId)).length
 }
 
+const initApp = () => {
+  if (authStore.isLoggedIn) {
+    deviceStore.fetchDevices()
+    deviceStore.initSignaling()
+    
+    // 方案三：异步拉取部署时由后端指定的环境变量默认配置
+    fetch('/api/default_settings')
+      .then(res => res.json())
+      .then(config => {
+        if (config && typeof config === 'object' && Object.keys(config).length > 0) {
+          const stored = localStorage.getItem('cloudphone_settings')
+          let current = {}
+          if (stored) {
+            try {
+              current = JSON.parse(stored)
+            } catch(e) {}
+          }
+          const merged = { ...current, ...config }
+          localStorage.setItem('cloudphone_settings', JSON.stringify(merged))
+          window.dispatchEvent(new CustomEvent('cloudphone-settings-updated', { detail: { deviceId: '' } }))
+        }
+      })
+      .catch(err => console.warn('未配置或无法获取后端默认配置:', err))
+  }
+}
+
 onMounted(() => {
-  deviceStore.fetchDevices(); deviceStore.initSignaling()
+  initApp()
   window.addEventListener('resize', updateMedia)
   updateMedia() // 确保组件挂载后瞬间重新执行检测，避免初次视口异常
+})
 
-  // 方案三：异步拉取部署时由后端指定的环境变量默认配置
-  fetch('/api/default_settings')
-    .then(res => res.json())
-    .then(config => {
-      if (config && typeof config === 'object' && Object.keys(config).length > 0) {
-        const stored = localStorage.getItem('cloudphone_settings')
-        let current = {}
-        if (stored) {
-          try {
-            current = JSON.parse(stored)
-          } catch(e) {}
-        }
-        const merged = { ...current, ...config }
-        localStorage.setItem('cloudphone_settings', JSON.stringify(merged))
-      }
-    })
-    .catch(err => console.warn('未配置或无法获取后端默认配置:', err))
+watch(() => authStore.isLoggedIn, (newVal) => {
+  if (newVal) {
+    initApp()
+  }
 })
 onUnmounted(() => window.removeEventListener('resize', updateMedia))
 
@@ -353,18 +424,38 @@ function navigateTo(path) {
     showDeployPage.value = true
     showFilePage.value = false
     showTerminalPage.value = false
+    showMonitorPage.value = false
+    showUserAdminPage.value = false
   } else if (path === '/files') {
     showDeployPage.value = false
     showFilePage.value = true
     showTerminalPage.value = false
+    showMonitorPage.value = false
+    showUserAdminPage.value = false
   } else if (path === '/terminal') {
     showDeployPage.value = false
     showFilePage.value = false
     showTerminalPage.value = true
+    showMonitorPage.value = false
+    showUserAdminPage.value = false
+  } else if (path === '/monitor') {
+    showDeployPage.value = false
+    showFilePage.value = false
+    showTerminalPage.value = false
+    showMonitorPage.value = true
+    showUserAdminPage.value = false
+  } else if (path === '/admin') {
+    showDeployPage.value = false
+    showFilePage.value = false
+    showTerminalPage.value = false
+    showMonitorPage.value = false
+    showUserAdminPage.value = true
   } else {
     showDeployPage.value = false
     showFilePage.value = false
     showTerminalPage.value = false
+    showMonitorPage.value = false
+    showUserAdminPage.value = false
   }
 }
 </script>
@@ -567,6 +658,65 @@ body { margin: 0; background: var(--bg-primary); color: #c9d1d9; font-family: -a
 }
 
 .nav-item.active { opacity: 1; color: var(--accent); background: rgba(88,166,255,0.1); }
+.nav-item.logout-nav-item:hover { opacity: 1; color: #f85149; background: rgba(248,81,73,0.1); }
+
+.header-user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #58a6ff, #1f6feb);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(31, 111, 235, 0.3);
+  flex-shrink: 0;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.user-role-badge.admin {
+  background: rgba(242, 193, 46, 0.12);
+  color: #f2c12e;
+  border: 1px solid rgba(242, 193, 46, 0.25);
+}
+
+.user-role-badge.user {
+  background: rgba(88, 166, 255, 0.12);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.25);
+}
 
 .nav-tag-group {
   width: 100%;

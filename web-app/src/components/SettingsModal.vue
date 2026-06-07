@@ -1,102 +1,198 @@
 <template>
   <Teleport to="body">
     <div class="settings-modal" @click.self="$emit('close')">
-      <div class="modal-content">
+      <div class="modal-content animate-fade-in">
         <div class="modal-header">
-          <h3>⚙️ 连接设置</h3>
+          <div class="header-title">
+            <span class="header-icon">⚙️</span>
+            <h3>连接设置</h3>
+          </div>
           <button class="close-btn" @click="$emit('close')">×</button>
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Max FPS (0 为无限制):</label>
-            <input type="number" v-model.number="localSettings.fps" min="0" max="120" />
-          </div>
 
-          <div class="form-group">
-            <label>Max Size (0 为无限制):</label>
-            <input type="number" v-model.number="localSettings.size" min="0" step="100" />
-            <small class="hint">例如：1080 表示限制最长边为 1080</small>
-          </div>
-
-          <div class="form-group">
-            <label>开启 BWE (动态码率):</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="bwe-toggle" v-model="localSettings.bwe" />
-              <label for="bwe-toggle"></label>
-            </div>
-          </div>
-
-          <div class="form-group" v-if="localSettings.bwe">
-            <label>Min Bitrate (Mbps):</label>
-            <input type="number" v-model.number="localSettings.minBitrate" min="1" step="1" />
-            <small class="hint">默认：8 Mbps</small>
-          </div>
-
-          <div class="form-group" v-if="localSettings.bwe">
-            <label>Max Bitrate (Mbps):</label>
-            <input type="number" v-model.number="localSettings.maxBitrate" min="1" step="1" />
-            <small class="hint">默认：20 Mbps</small>
-          </div>
-          
-          <div class="form-group" v-if="!localSettings.bwe">
-            <label>Bitrate (Mbps):</label>
-            <input type="number" v-model.number="localSettings.bitrate" min="1" step="1" />
-            <small class="hint">默认：4 Mbps</small>
-          </div>
-
-          <div class="form-group">
-            <label>开启 Agent Debug 日志:</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="debug-toggle" v-model="localSettings.debug" />
-              <label for="debug-toggle"></label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>开启音频 (Opus):</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="audio-toggle" v-model="localSettings.audio" />
-              <label for="audio-toggle"></label>
-            </div>
-          </div>
-
-          <div class="form-group" v-if="localSettings.audio">
-            <label>音量增益:</label>
-            <input type="number" v-model.number="localSettings.audioGain" min="0.5" max="3" step="0.25" />
-            <small class="hint">默认：1，过高可能失真</small>
-          </div>
-
-          <div class="form-group" v-if="localSettings.audio">
-            <label>音频源:</label>
-            <select v-model="localSettings.audioSource">
-              <option value="playback">playback</option>
-              <option value="output">output</option>
-            </select>
-            <small class="hint" v-if="localSettings.audioSource === 'playback'">不抢占手机本地声音，但只能捕获允许播放捕获的应用声音</small>
-            <small class="hint" v-else>捕获系统输出更完整，但会接管手机本地声音</small>
-          </div>
-
-          <div class="form-group" v-if="localSettings.audio && localSettings.audioSource === 'playback'">
-            <label>保留手机本地声音:</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="audio-dup-toggle" v-model="localSettings.audioDup" />
-              <label for="audio-dup-toggle"></label>
-            </div>
-            <small class="hint">仅 playback 模式有效；关闭后可能仍由系统路由决定是否本机出声</small>
-          </div>
-
-          <div class="form-group" v-if="localSettings.audio">
-            <label>默认页面静音:</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="page-audio-muted-toggle" v-model="localSettings.pageAudioMuted" />
-              <label for="page-audio-muted-toggle"></label>
-            </div>
-            <small class="hint">只静音浏览器播放，不修改虚机系统音量</small>
-          </div>
-
+        <!-- 标签页卡片导航 -->
+        <div class="modal-tabs">
+          <button :class="['tab-btn', { active: activeTab === 'video' }]" @click="activeTab = 'video'">
+            <span class="tab-icon">🎥</span>
+            <span class="tab-label">视频画面</span>
+          </button>
+          <button :class="['tab-btn', { active: activeTab === 'audio' }]" @click="activeTab = 'audio'">
+            <span class="tab-icon">🔊</span>
+            <span class="tab-label">音频传输</span>
+          </button>
+          <button :class="['tab-btn', { active: activeTab === 'advanced' }]" @click="activeTab = 'advanced'">
+            <span class="tab-icon">⚙️</span>
+            <span class="tab-label">高级运维</span>
+          </button>
         </div>
+
+        <div class="modal-body custom-scrollbar">
+          <!-- 🎥 视频面板 -->
+          <div v-if="activeTab === 'video'" class="tab-pane">
+            <div class="form-group">
+              <label>分辨率限制 (Max Size)</label>
+              <input type="number" v-model.number="localSettings.size" min="0" step="100" />
+              <small class="hint">0 为无限制。例如：1080 表示限制屏幕最长边为 1080px</small>
+            </div>
+
+            <div class="form-group">
+              <label>帧率控制 (Max FPS)</label>
+              <input type="number" v-model.number="localSettings.fps" min="0" max="120" />
+              <small class="hint">0 为无限制，推荐设置为 30 或 60 帧以保障流畅度</small>
+            </div>
+
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>开启 BWE 拥塞控制</label>
+                <small class="hint">动态评估带宽并自适应码率</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="bwe-toggle" v-model="localSettings.bwe" />
+                <label for="bwe-toggle"></label>
+              </div>
+            </div>
+
+            <!-- BWE 开启：码率阈值设定 -->
+            <div v-if="localSettings.bwe" class="sub-section">
+              <div class="form-group">
+                <label>最低码率下限 (Min Bitrate - Mbps)</label>
+                <input type="number" v-model.number="localSettings.minBitrate" min="1" step="1" />
+                <small class="hint">弱网环境下的画质兜底，默认：8 Mbps</small>
+              </div>
+              <div class="form-group">
+                <label>最高码率上限 (Max Bitrate - Mbps)</label>
+                <input type="number" v-model.number="localSettings.maxBitrate" min="1" step="1" />
+                <small class="hint">极佳网络下的画质上限，默认：20 Mbps</small>
+              </div>
+            </div>
+
+            <!-- BWE 关闭：固定码率设定 -->
+            <div v-else class="form-group">
+              <label>固定画面码率 (Bitrate - Mbps)</label>
+              <input type="number" v-model.number="localSettings.bitrate" min="1" step="1" />
+              <small class="hint">固定网络开销码率，默认：4 Mbps</small>
+            </div>
+
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>显示连接状态栏</label>
+                <small class="hint">在视频画面左上角显示连接质量与统计信息</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="show-stats-toggle" v-model="localSettings.showStats" />
+                <label for="show-stats-toggle"></label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 🔊 音频面板 -->
+          <div v-if="activeTab === 'audio'" class="tab-pane">
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>开启音频 (Opus)</label>
+                <small class="hint">回传云手机系统声音 (开启后默认设为 output)</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="audio-toggle" v-model="localSettings.audio" />
+                <label for="audio-toggle"></label>
+              </div>
+            </div>
+
+            <div v-if="localSettings.audio" class="sub-section animate-slide-down">
+              <div class="form-group">
+                <label>音频来源 (Audio Source)</label>
+                <select v-model="localSettings.audioSource" class="select-input">
+                  <option value="output">output (捕获扬声器声音，物理手机静音)</option>
+                  <option value="playback">playback (保留本地声音，限 Android 13+)</option>
+                </select>
+                <small class="hint" v-if="localSettings.audioSource === 'playback'">不影响真机本地外放，但仅能捕获允许内录的 App 音频</small>
+                <small class="hint" v-else>能捕获最完整的系统声音，但会接管真机物理扬声器</small>
+              </div>
+
+              <div class="form-group form-group-row" v-if="localSettings.audioSource === 'playback'">
+                <div class="group-info">
+                  <label>保留物理手机本地声音</label>
+                  <small class="hint">仅 playback 模式且系统路由支持时有效</small>
+                </div>
+                <div class="toggle-switch">
+                  <input type="checkbox" id="audio-dup-toggle" v-model="localSettings.audioDup" />
+                  <label for="audio-dup-toggle"></label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>音量增益</label>
+                <input type="number" v-model.number="localSettings.audioGain" min="0.5" max="3" step="0.25" />
+                <small class="hint">默认 1.0。支持 0.5 - 3.0 倍范围音量缩放</small>
+              </div>
+
+              <div class="form-group form-group-row">
+                <div class="group-info">
+                  <label>默认页面静音</label>
+                  <small class="hint">静音浏览器标签页，不关闭云端音频编码</small>
+                </div>
+                <div class="toggle-switch">
+                  <input type="checkbox" id="page-audio-muted-toggle" v-model="localSettings.pageAudioMuted" />
+                  <label for="page-audio-muted-toggle"></label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ⚙️ 高级与运维面板 -->
+          <div v-if="activeTab === 'advanced'" class="tab-pane">
+            <div class="form-group">
+              <label>连接通道偏好</label>
+              <select v-model="localSettings.connectionPath" class="select-input">
+                <option value="auto">自动 (优先直连，失败走中转)</option>
+                <option value="direct">强制直连 (仅 Host/P2P，不走中转)</option>
+                <option value="relay">强制中转 (仅 Relay/TURN，不暴露本地IP)</option>
+              </select>
+              <small class="hint">控制 WebRTC 数据链路是直连还是通过 TURN 中转</small>
+            </div>
+
+            <div class="form-group">
+              <label>IP 协议偏好</label>
+              <select v-model="localSettings.ipPreference" class="select-input">
+                <option value="auto">自动 (双栈自动适配)</option>
+                <option value="ipv4">强制 IPv4</option>
+                <option value="ipv6">强制 IPv6</option>
+              </select>
+              <small class="hint">控制是否过滤或禁用 IPv4 / IPv6 的连接候选地址</small>
+            </div>
+
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>开启息屏连接</label>
+                <small class="hint">唤醒录屏后自动切断真机显示背光 (防窥省电)</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="poweroff-toggle" v-model="localSettings.powerOff" />
+                <label for="poweroff-toggle"></label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>静默快照更新频率 (秒)</label>
+              <input type="number" v-model.number="localSettings.snapshotInterval" min="1" step="1" />
+              <small class="hint">云手机在未建立 WebRTC 时的后台缩略图上报周期</small>
+            </div>
+
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>开启 Agent 调试日志</label>
+                <small class="hint">在后台终端打印 scrcpy-server 和视频流的 verbose 日志</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="debug-toggle" v-model="localSettings.debug" />
+                <label for="debug-toggle"></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="modal-footer">
-          <button class="btn btn-danger" v-if="isCustom" @click="resetToGlobal">恢复全局设置</button>
+          <button class="btn btn-danger" v-if="isCustom" @click="resetToGlobal">恢复默认</button>
           <div style="flex: 1"></div>
           <button class="btn btn-secondary" @click="$emit('close')">取消</button>
           <button class="btn btn-primary" @click="saveAndReconnect">
@@ -133,6 +229,16 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save', 'reset'])
 
 const localSettings = ref({ ...props.settings })
+const activeTab = ref('video')
+
+// 监听开启音频，当勾选 audio 时，如果 audioSource 没有设置，自动赋予默认值 'output'
+watch(() => localSettings.value.audio, (newVal) => {
+  if (newVal) {
+    if (!localSettings.value.audioSource) {
+      localSettings.value.audioSource = 'output'
+    }
+  }
+})
 
 function saveAndReconnect() {
   emit('save', { ...localSettings.value })
@@ -152,31 +258,44 @@ function resetToGlobal() {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(10, 12, 16, 0.65);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 10000;
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  backdrop-filter: blur(12px);
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .modal-content {
-  background: var(--bg-secondary);
-  border-radius: 12px;
+  background: #161b22;
+  border-radius: 16px;
   width: 100%;
-  max-width: 400px;
-  max-height: 90vh;
+  max-width: 440px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  transform: translateY(0);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-fade-in {
+  animation: modalEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .modal-header {
@@ -184,12 +303,25 @@ function resetToGlobal() {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.01);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-icon {
+  font-size: 18px;
 }
 
 .modal-header h3 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
+  color: #f0f6fc;
 }
 
 .close-btn {
@@ -199,55 +331,188 @@ function resetToGlobal() {
   align-items: center;
   justify-content: center;
   background: transparent;
-  color: var(--text-secondary);
+  color: #8b949e;
   font-size: 24px;
   border-radius: 8px;
   cursor: pointer;
   border: none;
+  transition: all 0.2s ease;
 }
 
 .close-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f0f6fc;
 }
 
-.modal-body {
+/* 标签导航栏 */
+.modal-tabs {
+  display: flex;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 4px;
+}
+
+.tab-btn {
   flex: 1;
-  overflow: auto;
-  padding: 20px;
-}
-
-.form-group {
-  margin-bottom: 16px;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+}
+
+.tab-icon {
+  font-size: 15px;
+}
+
+.tab-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tab-btn:hover {
+  color: #f0f6fc;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tab-btn.active {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.15);
+}
+
+/* 面板主体，加入自定义滚动与防溢出 */
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: #0d1117;
+  max-height: 50vh;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: paneEnter 0.2s ease forwards;
+}
+
+@keyframes paneEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 2px dashed rgba(88, 166, 255, 0.2);
+  padding-left: 12px;
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.2s ease forwards;
+}
+
+@keyframes slideDown {
+  from { height: 0; opacity: 0; overflow: hidden; }
+  to { height: auto; opacity: 1; }
+}
+
+/* 精美卡片式表单元素 */
+.form-group {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 12px 14px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.form-group:focus-within {
+  border-color: rgba(88, 166, 255, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.form-group-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.group-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
 .form-group label {
   font-size: 13px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: #c9d1d9;
 }
 
-.form-group input[type="number"], .form-group input[type="text"], .form-group select {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  padding: 10px;
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: var(--accent);
+.form-group-row label {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .hint {
-  font-size: 12px;
+  font-size: 11px;
   color: #8b949e;
+  line-height: 1.4;
 }
 
+/* 输入框与选择菜单美化 */
+.form-group input[type="number"], 
+.form-group input[type="text"], 
+.form-group select.select-input {
+  background: #21262d;
+  border: 1px solid #30363d;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #c9d1d9;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+/* 开关控制美化 */
 .toggle-switch {
   display: flex;
   align-items: center;
@@ -259,12 +524,13 @@ function resetToGlobal() {
 
 .toggle-switch label {
   cursor: pointer;
-  width: 40px;
-  height: 20px;
-  background: var(--border);
-  border-radius: 10px;
+  width: 44px;
+  height: 22px;
+  background: #30363d;
+  border-radius: 11px;
   position: relative;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .toggle-switch label::after {
@@ -274,63 +540,123 @@ function resetToGlobal() {
   left: 2px;
   width: 16px;
   height: 16px;
-  background: white;
+  background: #f0f6fc;
   border-radius: 50%;
-  transition: transform 0.2s;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .toggle-switch input[type="checkbox"]:checked + label {
-  background: var(--accent);
+  background: #238636;
 }
 
 .toggle-switch input[type="checkbox"]:checked + label::after {
-  transform: translateX(20px);
+  transform: translateX(22px);
+  background: #ffffff;
 }
 
+/* 页脚按钮 */
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   padding: 16px 20px;
-  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   border: none;
 }
 
 .btn-secondary {
   background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  color: #c9d1d9;
+  border: 1px solid #30363d;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #8b949e;
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: white;
+  background: #1f6feb;
+  color: #ffffff;
 }
 
 .btn-primary:hover {
-  filter: brightness(1.1);
+  background: #388bfd;
+  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.25);
 }
 
 .btn-danger {
   background: transparent;
   color: #f85149;
-  border: 1px solid #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.3);
 }
 
 .btn-danger:hover {
   background: rgba(248, 81, 73, 0.1);
+  border-color: #f85149;
+}
+
+/* 适配手机端与小屏幕 */
+@media (max-width: 480px) {
+  .settings-modal {
+    padding: 0;
+    align-items: flex-end; /* 在手机上从底部弹出 */
+  }
+
+  .modal-content {
+    max-width: 100%;
+    border-radius: 20px 20px 0 0; /* 底部无圆角 */
+    max-height: 85vh;
+    animation: mobileSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes mobileSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .modal-tabs {
+    padding: 6px;
+  }
+
+  .tab-btn {
+    padding: 6px 2px;
+  }
+
+  .tab-label {
+    font-size: 10px;
+  }
+
+  .modal-body {
+    padding: 12px 16px;
+    max-height: 48vh; /* 压低体部，防止物理键盘弹起时溢出 */
+  }
+
+  .form-group {
+    padding: 10px 12px;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+    flex-wrap: wrap; /* 支持换行 */
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    flex: 1; /* 按钮横向平摊 */
+    min-width: 80px;
+    text-align: center;
+  }
 }
 </style>

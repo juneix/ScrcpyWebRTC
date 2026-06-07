@@ -14,6 +14,13 @@ const routes = [
     components: {
       default: () => import('@/views/DeployPage.vue')
     }
+  },
+  {
+    path: '/monitor',
+    name: 'Monitor',
+    components: {
+      default: () => import('@/views/Dashboard.vue')
+    }
   }
 ]
 
