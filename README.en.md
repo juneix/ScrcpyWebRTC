@@ -50,15 +50,19 @@ cd agentd
 
 #### 3. Run entirely locally on Android (Computer-free)
 You can push the full suite including the signaling server directly to your phone, making the phone its own server:
-1. Push the Android standalone package and static assets:
-   ```bash
-   adb push android /data/local/tmp/
-   adb push assets /data/local/tmp/android/
-   ```
-2. Start services on your phone:
-   ```bash
-   adb shell sh /data/local/tmp/android/setup.sh
-   ```
+
+- **Windows Users**:
+  Double-click `android/setup.bat` (or run `setup.bat <adb-serial>` in command line). The script will automatically push the standalone binaries and `assets/` to your device and start all services in Android background.
+- **Mac / Linux Users**:
+  1. Push the Android standalone package and static assets:
+     ```bash
+     adb push android /data/local/tmp/
+     adb push assets /data/local/tmp/android/
+     ```
+  2. Start services on your phone:
+     ```bash
+     adb shell sh /data/local/tmp/android/setup.sh
+     ```
 
 #### 4. Docker / Redroid Container
 When the Agent is running inside an isolated container, you need to specify the host IP and expose the UDP port in your Docker run command (e.g., `-p 50000:50000/udp`):

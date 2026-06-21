@@ -82,15 +82,19 @@ cd agentd
 
 #### 3. Android 本地全环境运行 (脱离电脑)
 你可以将包含信令服务器在内的全套环境推送到手机内执行，让手机自身成为服务器：
-1. 推送安卓独立包与静态资源：
-   ```bash
-   adb push android /data/local/tmp/
-   adb push assets /data/local/tmp/android/
-   ```
-2. 在手机中启动：
-   ```bash
-   adb shell sh /data/local/tmp/android/setup.sh
-   ```
+
+- **Windows 电脑用户**：
+  直接双击运行 `android/setup.bat` 脚本（或在命令行下运行 `setup.bat <adb-serial>`）。脚本会自动推送二进制与 `assets/` 资源，并一键在安卓手机端拉起信令服务器与 Agent。
+- **Mac / Linux 电脑用户**：
+  1. 推送安卓独立包与静态资源：
+     ```bash
+     adb push android /data/local/tmp/
+     adb push assets /data/local/tmp/android/
+     ```
+  2. 在手机中启动：
+     ```bash
+     adb shell sh /data/local/tmp/android/setup.sh
+     ```
 
 #### 4. Docker / Redroid 容器
 Agent 运行在隔离容器内时，需指定宿主机ip, 并在Docker启动参数中增加 `-p 50000:50000/udp`

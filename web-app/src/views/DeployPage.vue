@@ -10,9 +10,9 @@
           <input
             v-model="form.signalingUrl"
             class="form-input"
-            placeholder="必填项"
+            placeholder="支持 ws:// 或 wss:// 前缀"
           >
-          <div class="form-hint">需填写本机ip+端口，如：192.168.1.2:8443</div>
+          <div class="form-hint">需填写信令服务器地址（支持自动补全协议），例如：<br>非加密环境: <code>ws://192.168.1.2:8443</code> 或 <code>192.168.1.2:8443</code><br>加密环境: <code>wss://192.168.1.2:8443</code></div>
         </div>
 
         <div class="form-group">
@@ -22,26 +22,6 @@
             class="form-input"
             placeholder="留空自动生成"
           >
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">视频码率</label>
-          <select v-model="form.bitrate" class="form-input">
-            <option :value="2000000">2 Mbps</option>
-            <option :value="4000000">4 Mbps (默认)</option>
-            <option :value="8000000">8 Mbps</option>
-            <option :value="16000000">16 Mbps</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">最大分辨率</label>
-          <select v-model="form.maxSize" class="form-input">
-            <option :value="0">不限制</option>
-            <option :value="1280">1280</option>
-            <option :value="1920">1920 (推荐)</option>
-            <option :value="2560">2560</option>
-          </select>
         </div>
 
         <div class="form-group">
@@ -66,14 +46,6 @@
           <div class="form-hint">默认: intra-refresh-period=30,i-frame-interval=2,vendor.rtc-ext-enc-low-latency=1</div>
         </div>
 
-        <div class="form-group form-row">
-          <label class="form-label">以 root 运行</label>
-          <label class="toggle">
-            <input type="checkbox" v-model="form.runAsRoot">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
         <div class="form-group">
           <label class="form-label">External Addr</label>
           <input
@@ -91,6 +63,16 @@
             class="form-input"
             placeholder="留空不设置，默认 50000端口"
           >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">ICE Servers 地址</label>
+          <input
+            v-model="form.iceServers"
+            class="form-input"
+            placeholder="stun:stun.l.google.com:19302"
+          >
+          <div class="form-hint">自定义 ICE 服务器，多个以英文逗号分隔，如：stun:stun.l.google.com:19302,turn:user:pass@host:port</div>
         </div>
 
         <button
@@ -145,13 +127,11 @@ const logArea = ref(null)
 const form = reactive({
   signalingUrl: localStorage.getItem('signalingAddr') || '',
   deviceId: '',
-  bitrate: 4000000,
-  maxSize: 1920,
   maxFps: 60,
   videoCodecOptions: '',
-  runAsRoot: false,
   externalAddr: '',
   webrtcPort: '',
+  iceServers: '',
 })
 
 const steps = ['连接 USB 设备', 'ADB 认证', '探测架构', '推送文件', '启动服务']
@@ -194,15 +174,20 @@ async function startDeploy() {
   await deployAgent({
     signalingUrl: form.signalingUrl,
     deviceId: form.deviceId || undefined,
-    bitrate: form.bitrate,
-    maxSize: form.maxSize,
     maxFps: form.maxFps,
     videoCodecOptions: form.videoCodecOptions || undefined,
-    runAsRoot: form.runAsRoot,
     externalAddr: form.externalAddr || undefined,
     webrtcPort: form.webrtcPort || undefined,
+    iceServers: form.iceServers || undefined,
   })
 }
+
+onMounted(() => {
+  if (!form.signalingUrl) {
+    const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+    form.signalingUrl = protocol + window.location.host
+  }
+})
 </script>
 
 <style scoped>

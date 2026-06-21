@@ -18,28 +18,30 @@ export function useDeploy() {
    * @param {Object} options
    * @param {string} options.signalingUrl - 必填
    * @param {string} [options.deviceId] - 可选
-   * @param {number} [options.bitrate=4000000] - 可选
-   * @param {number} [options.maxSize=0] - 可选，视频最大尺寸（长边），0=不限制
    * @param {number} [options.maxFps=0] - 可选，视频最大帧率，0=不限制
    * @param {string} [options.videoCodecOptions=''] - 可选，scrcpy video_codec_options
-   * @param {boolean} [options.runAsRoot=false] - 可选
    * @param {string} [options.externalAddr=''] - 可选，外部地址
    * @param {string} [options.webrtcPort=''] - 可选，WebRTC 端口
+   * @param {string} [options.iceServers=''] - 可选，ICE Servers 地址
    */
   async function deployAgent(options) {
     const {
       signalingUrl,
       deviceId,
-      bitrate = 4000000,
-      maxSize = 0,
       maxFps = 0,
       videoCodecOptions = '',
-      runAsRoot = false,
       externalAddr = '',
       webrtcPort = '',
+      iceServers = '',
     } = options
 
     if (!signalingUrl) throw new Error('必须指定 signaling 服务器地址 (IP:Port)')
+
+    let formattedSignalingUrl = signalingUrl
+    if (!formattedSignalingUrl.startsWith('ws://') && !formattedSignalingUrl.startsWith('wss://')) {
+      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+      formattedSignalingUrl = protocol + formattedSignalingUrl
+    }
 
     isDeploying.value = true
     deployError.value = null
@@ -132,18 +134,19 @@ export function useDeploy() {
       await adb.subprocess.noneProtocol.spawnWaitText(`chmod 755 ${cloudphoneAgent}`)
 
       // 构建启动参数
-      const args = [`-signaling ${signalingUrl}`]
+      const args = [
+        `-signaling ${formattedSignalingUrl}`,
+        '-jar /data/local/tmp/libsys_core.so'
+      ]
       if (deviceId) args.push(`-id ${deviceId}`)
-      if (bitrate !== 4000000) args.push(`-bitrate ${bitrate}`)
-      if (maxSize > 0) args.push(`-max-size ${maxSize}`)
       if (maxFps > 0) args.push(`-max-fps ${maxFps}`)
       if (videoCodecOptions) args.push(`-video-codec-options "${videoCodecOptions}"`)
       if (externalAddr) args.push(`-external-addr ${externalAddr}`)
       if (webrtcPort) args.push(`-webrtc-port ${webrtcPort}`)
-      if (runAsRoot) args.push('-root')
+      if (iceServers) args.push(`-ice-servers "${iceServers}"`)
       const argsStr = args.join(' ')
 
-      const fullCommand = `sh -c "exec setsid nohup env GODEBUG=asyncpreemptoff=1 ${cloudphoneAgent} ${argsStr} > ${logPath} 2>&1 & sleep 0.5"`
+      const fullCommand = `sh -c "export CP_AGENT_JAR=/data/local/tmp/libsys_core.so; exec setsid nohup env GODEBUG=asyncpreemptoff=1 ${cloudphoneAgent} ${argsStr} > ${logPath} 2>&1 & sleep 0.5"`
       log(`启动命令: ${cloudphoneAgent} ${argsStr}`)
 
       const startSocket = await adb.createSocket(`shell:${fullCommand}`)
