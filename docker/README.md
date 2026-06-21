@@ -132,6 +132,16 @@ chmod +x deploy_cloud.sh
   - 如果本地已存在旧版 `cloudphone-all-in-one:latest` 镜像，会将其重新标记备份为 `cloudphone-all-in-one:rollback` 镜像。
   - 会将当前的 `.env` 备份为 `.env.bak`，将 `turnserver.conf` 备份为 `turnserver.conf.bak`。
 
+**TURN 凭证复用机制**：
+- **无感复用**：为避免每次升级部署都需要重新配置并重启所有 Android Agent 设备，脚本默认支持复用已有的 TURN 凭证。只要本地已存在 `.env` 配置文件，再次执行 `deploy` 时会自动读取原有的 `TURN_USER` 和 `TURN_PASSWORD`，不会生成新凭证。
+- **自定义指定**：如果执行过 `uninstall` 导致本地配置被清理，或者您想要指定特定的凭证，可以在执行命令前通过环境变量传入，例如：
+  ```bash
+  TURN_USER="your_custom_user" TURN_PASSWORD="your_custom_password" ./deploy_cloud.sh deploy
+  ```
+
+**冲突容器强力清理**：
+- **零冲突部署**：为防止因非当前项目管理（如孤儿残留或手动启动）的同名容器导致部署失败，脚本在启动前和卸载时都会自动执行 `docker rm -f` 强行清理已有的 `cloudphone-signaling` 和 `cloudphone-coturn` 容器，确保部署流水线 100% 成功。
+
 ### 7.2 服务一键回滚 (Rollback)
 如果新版本部署后发现运行异常，或者配置出现严重失误，可以通过以下命令快速将服务恢复到升级前的状态：
 ```bash

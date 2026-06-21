@@ -84,11 +84,63 @@ button {
   border-radius: 4px;
 }
 
-/* 动画 */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Web fullscreen mode */
+.web-fullscreen .video-wrapper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-primary);
+  z-index: 10000;
 }
+/* Hide sidebars in web fullscreen */
+.web-fullscreen .sidebar,
+.web-fullscreen .control-sidebar {
+  display: none !important;
+}
+/* FAB buttons shared style */
+.webfullscreen-fab,
+.pip-fab {
+  position: absolute;
+  top: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.2s;
+}
+.webfullscreen-fab .icon,
+.pip-fab .icon {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.webfullscreen-fab:hover,
+.pip-fab:hover {
+  background: rgba(0, 0, 0, 0.8);
+  transform: scale(1.1);
+}
+
+/* Position: fullscreen-fab is at right:16px (PC), webfullscreen-fab next, pip-fab after */
+.webfullscreen-fab {
+  right: 60px;
+}
+.pip-fab {
+  right: 104px;
+}
+
 
 .fade-enter-active,
 .fade-leave-active {

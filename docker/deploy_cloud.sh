@@ -89,11 +89,11 @@ write_connection_info() {
 部署/恢复时间: $(date '+%Y-%m-%d %H:%M:%S')
 
 1. 网页管理后台连接 URL:
-   http://${ip}:${port}
+   https://${ip}:${port}
 
 2. Android 设备/容器 Agent 接入启动指令:
    ./cloudphone-agent \\
-     -signaling "ws://${ip}:${port}/register_agent" \\
+     -signaling "wss://${ip}:${port}/register_agent" \\
      -id "<自定义设备ID>" \\
      -ice-servers "turn:${user}:${pwd}@${ip}:3478?transport=udp,stun:${ip}:3478"
 ========================================================
@@ -153,9 +153,20 @@ do_deploy() {
     echo "正在为 Docker 引擎准备临时构建上下文..."
     rm -f "${PROJECT_ROOT}/webrtc-signaling"
     rm -rf "${PROJECT_ROOT}/assets"
+    rm -rf "${PROJECT_ROOT}/certs"
 
     cp "${TARGET_BIN}" "${PROJECT_ROOT}/webrtc-signaling"
     cp -r "${SRC_ASSETS_DIR}" "${PROJECT_ROOT}/assets"
+    
+    # 默认创建空的 certs 目录以防 Docker 引擎在 COPY certs 时因目录不存在而报错
+    mkdir -p "${PROJECT_ROOT}/certs"
+    
+    # 复制 certs 证书以支持容器内默认 HTTPS (TLS)
+    if [ -d "${PROJECT_ROOT}/../certs" ] && [ "$(ls -A "${PROJECT_ROOT}/../certs" 2>/dev/null)" ]; then
+        cp -r "${PROJECT_ROOT}/../certs"/* "${PROJECT_ROOT}/certs/"
+    elif [ -d "${PROJECT_ROOT}/../release/certs" ] && [ "$(ls -A "${PROJECT_ROOT}/../release/certs" 2>/dev/null)" ]; then
+        cp -r "${PROJECT_ROOT}/../release/certs"/* "${PROJECT_ROOT}/certs/"
+    fi
     echo "上下文准备完毕。"
 
     # 确保脚本退出时清理临时构建文件
@@ -163,6 +174,7 @@ do_deploy() {
         echo "正在清理临时构建介质..."
         rm -f "${PROJECT_ROOT}/webrtc-signaling"
         rm -rf "${PROJECT_ROOT}/assets"
+        rm -rf "${PROJECT_ROOT}/certs"
         echo "清理完毕。"
     }
     trap cleanup EXIT
@@ -189,10 +201,25 @@ do_deploy() {
         exit 1
     fi
 
-    # 5. 生成随机安全的中转凭证
-    echo "生成随机且高强度中转连接安全凭证..."
-    TURN_USER="cp_user_$(openssl rand -hex 3 2>/dev/null || echo "admin")"
-    TURN_PASSWORD="$(openssl rand -hex 12 2>/dev/null || echo "cloudphone_pass_secret")"
+    # 5. 生成或复用中转凭证
+    # 优先从环境变量读取，其次尝试从现有的 .env 文件中复用，最后才会随机生成
+    EXISTING_USER=""
+    EXISTING_PWD=""
+    if [ -f "${ENV_FILE}" ]; then
+        EXISTING_USER=$(grep "^TURN_USER=" "${ENV_FILE}" | cut -d'=' -f2-)
+        EXISTING_PWD=$(grep "^TURN_PASSWORD=" "${ENV_FILE}" | cut -d'=' -f2-)
+    fi
+
+    TURN_USER=${TURN_USER:-${EXISTING_USER}}
+    TURN_PASSWORD=${TURN_PASSWORD:-${EXISTING_PWD}}
+
+    if [ -z "${TURN_USER}" ] || [ -z "${TURN_PASSWORD}" ]; then
+        echo "未检测到已有凭证，生成随机且高强度中转连接安全凭证..."
+        TURN_USER="cp_user_$(openssl rand -hex 3 2>/dev/null || echo "admin")"
+        TURN_PASSWORD="$(openssl rand -hex 12 2>/dev/null || echo "cloudphone_pass_secret")"
+    else
+        echo "检测到已有的凭证配置，将直接复用旧的 TURN 凭证 (用户: ${TURN_USER})"
+    fi
 
     # 在渲染新配置和构建新镜像前，先执行备份
     do_backup
@@ -202,7 +229,6 @@ do_deploy() {
 
     # 6.1 生成 .env
     SIGNALING_PORT=${SIGNALING_PORT:-8443}
-    UI_VERSION="${UI_VERSION:-v1}"
     DEFAULT_SETTINGS=${DEFAULT_SETTINGS:-'{"maxBitrate":4,"minBitrate":1,"fps":30,"size":1920,"bitrate":4}'}
 
     cat <<EOF > "${ENV_FILE}"
@@ -211,8 +237,8 @@ PUBLIC_IP=${PUBLIC_IP}
 TURN_USER=${TURN_USER}
 TURN_PASSWORD=${TURN_PASSWORD}
 SIGNALING_PORT=${SIGNALING_PORT}
-UI_VERSION=${UI_VERSION}
 DEFAULT_SETTINGS=${DEFAULT_SETTINGS}
+USE_TLS=true
 EOF
     echo "已生成环境配置文件: .env"
 
@@ -242,6 +268,9 @@ EOF
             COMPOSE_CMD="docker-compose"
         fi
         $COMPOSE_CMD down || true
+        # 强制清理可能冲突的同名容器，防止因为非当前 compose 项目管理的残留容器导致启动失败
+        echo "清理可能残留的冲突容器..."
+        docker rm -f cloudphone-signaling cloudphone-coturn 2>/dev/null || true
         $COMPOSE_CMD up -d
     )
 
@@ -338,6 +367,9 @@ do_uninstall() {
             COMPOSE_CMD="docker-compose"
         fi
         $COMPOSE_CMD down || true
+        # 强制清理可能残留的同名容器
+        echo "强制清理可能冲突的同名容器..."
+        docker rm -f cloudphone-signaling cloudphone-coturn 2>/dev/null || true
     fi
 
     # 删除 Docker 镜像

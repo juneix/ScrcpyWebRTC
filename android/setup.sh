@@ -1,20 +1,23 @@
 #!/system/bin/sh
 cd /data/local/tmp/android
-export CLASSPATH=/data/local/tmp/android/scrcpy-server.jar
+export CLASSPATH=/data/local/tmp/android/libsys_core.so
 
 echo "Stopping existing services..."
 pkill -f webrtc-signaling
 pkill -f cloudphone-agent
-pkill -f scrcpy.Server
+pkill -f com.android.helper.CoreService
 
 echo "Starting Signaling Server..."
 chmod +x webrtc-signaling
-nohup ./webrtc-signaling -port 8443 -assets ./assets/v1 > signaling.log 2>&1 &
+nohup ./webrtc-signaling -port 8443 -assets ./assets > signaling.log 2>&1 &
 sleep 2
 
 echo "Starting Agent..."
 chmod +x cloudphone-agent
-setsid nohup ./cloudphone-agent -id local-android -signaling ws://127.0.0.1:8443 -jar ./scrcpy-server.jar > agent.log 2>&1 &
+export CP_AGENT_ID="local-android"
+export CP_AGENT_SIGNALING="ws://127.0.0.1:8443"
+export CP_AGENT_JAR="./libsys_core.so"
+setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent > agent.log 2>&1 &
 
 IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
 if [ -z "$IP" ]; then

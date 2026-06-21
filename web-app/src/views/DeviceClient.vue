@@ -14,6 +14,15 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
         </button>
 
+        <!-- 页面全屏按钮 -->
+        <button v-if="!isMobile" class="webfullscreen-fab" @click="toggleWebFullscreen" :title="isWebFullscreen ? '退出页面全屏' : '页面全屏'">
+          <svg class="icon" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+        </button>
+        <!-- 画中画按钮 -->
+        <button v-if="!isMobile && pictureInPictureSupported" class="pip-fab" @click="togglePictureInPicture" :title="isPiP ? '退出画中画' : '画中画'">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="11" y="9" width="9" height="7" rx="1" ry="1" fill="currentColor" stroke="none"></rect></svg>
+        </button>
+
         <video
           ref="videoElement"
           autoplay
@@ -24,11 +33,14 @@
           @mousemove="onMouseMove"
           @mouseup="onMouseUp"
           @mouseleave="onMouseLeave"
+          @wheel.prevent="onWheel"
+          @contextmenu.prevent
           @touchstart.prevent="onTouchStart"
           @touchmove.prevent="onTouchMove"
           @touchend.prevent="onTouchEnd"
           @touchcancel.prevent="onTouchEnd"
           @loadedmetadata="onVideoLoaded"
+          @resize="onVideoResize"
         />
 
         <textarea
@@ -67,16 +79,16 @@
         <!-- 加载/错误覆盖层 -->
         <div v-if="showOverlay" class="panel-overlay">
           <div class="overlay-box">
-            <template v-if="['connecting', 'signaling', 'waiting_offer', 'connecting_webrtc'].includes(webrtc.status.value)">
+            <template v-if="['connecting', 'signaling', 'waiting_offer', 'connecting_webrtc'].includes(currentWebRTC.status.value)">
               <div class="mini-spinner"></div>
               <p>{{ loadingText }}</p>
             </template>
-            <template v-else-if="webrtc.error.value">
+            <template v-else-if="currentWebRTC.error.value">
               <p class="error-msg">❌ 连接失败</p>
-              <p class="error-tip">{{ webrtc.error.value }}</p>
+              <p class="error-tip">{{ currentWebRTC.error.value }}</p>
               <button class="retry-btn" @click="retry">重试</button>
             </template>
-            <template v-else-if="webrtc.status.value === 'disconnected'">
+            <template v-else-if="currentWebRTC.status.value === 'disconnected'">
               <p>连接已断开</p>
               <button class="retry-btn" @click="retry">重新连接</button>
             </template>
@@ -116,7 +128,7 @@
               <svg v-else class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15 9a5 5 0 0 1 0 6"></path><path d="M17.7 6.3a9 9 0 0 1 0 11.4"></path></svg>
               {{ pageAudioMuted ? '取消静音' : '页面静音' }}
             </button>
-            <button class="fab-item" @click="showConsole = !showConsole; if(showConsole) activeTab = 'shell'; showMobileMenu=false">
+            <button class="fab-item" @click="toggleConsole(); showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> 终端
             </button>
             <button class="fab-item" @click="keymapStore.setEditMode(true); showMobileMenu=false">
@@ -153,12 +165,15 @@
             </button>
             
             <div class="fab-divider"></div>
-            <button class="fab-item danger" @click="goBackToList; showMobileMenu=false">
+            <button class="fab-item danger" @click="goBackToList(); showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> 断开连接
             </button>
-            <button class="fab-item danger" @click="quitAgent; showMobileMenu=false">
+            <button class="fab-item danger" @click="quitAgent(); showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg> 退出 Agent
             </button>
+            <div class="fab-agent-version" :title="'Agent 完整版本号: ' + agentVersion">
+              Agent {{ agentVersion.split('-')[0] }}
+            </div>
           </div>
         </div>
 
@@ -195,7 +210,7 @@
           <svg v-else class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15 9a5 5 0 0 1 0 6"></path><path d="M17.7 6.3a9 9 0 0 1 0 11.4"></path></svg>
           <span class="btn-text">{{ pageAudioMuted ? '取消静音' : '静音' }}</span>
         </button>
-        <button class="sidebar-btn" :class="{ active: showConsole && activeTab === 'shell' }" @click="showConsole = !showConsole; if(showConsole) activeTab = 'shell'" title="控制台">
+        <button class="sidebar-btn" :class="{ active: deviceStore.showGlobalConsole && deviceStore.consoleDeviceId === currentId }" @click="toggleConsole" title="控制台">
           <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
           <span class="btn-text">终端</span>
         </button>
@@ -249,59 +264,14 @@
         <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         <span class="btn-text">设置</span>
       </button>
+
+      <!-- 底部微小 Agent 版本号展示 -->
+      <div class="sidebar-agent-version" :title="'Agent 完整版本号: ' + agentVersion">
+        {{ agentVersion.split('-')[0] }}
+      </div>
     </div>
 
-    <!-- 控制台/ADB 抽屉 (Teleport 到主列表下方) -->
-    <Teleport to="#main-layout-content">
-      <div v-show="showConsole" class="console-drawer">
-        <div class="console-header">
-          <div class="console-tabs">
-            <button :class="{active: activeTab === 'shell'}" @click="activeTab = 'shell'">终端 (Shell)</button>
-            <button :class="{active: activeTab === 'adb'}" @click="activeTab = 'adb'">ADB 调试</button>
-          </div>
-          <button class="close-console" @click="toggleConsole">✕</button>
-        </div>
 
-        <!-- 标准 Shell 视图 -->
-        <div v-show="activeTab === 'shell'" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
-          <div class="console-history" ref="consoleRef">
-            <div v-for="(log, idx) in consoleLogs" :key="idx" :class="['log-item', log.type]">
-              <span class="log-cmd" v-if="log.cmd">$ {{ log.cmd }}</span>
-              <pre class="log-out">{{ log.text }}</pre>
-            </div>
-            <div v-if="consoleLogs.length === 0" class="console-empty">等待命令下发...</div>
-          </div>
-          <div class="console-shortcuts">
-            <button @click="quickCmd('pm list packages -3')">三方应用</button>
-            <button @click="quickCmd('getprop ro.product.model')">型号</button>
-            <button @click="quickCmd('uptime')">运行时间</button>
-            <button @click="quickCmd('settings put system pointer_location 1')">打开划线</button>
-            <button @click="consoleLogs = []">清屏</button>
-          </div>
-          <div class="console-shortcuts danger">
-             <button class="quit-btn" @click="quitAgent">强制退出 Agent 进程</button>
-          </div>
-          <div class="console-input-group">
-            <input 
-              v-model="inputCmd" 
-              @keyup.enter="execCmd"
-              placeholder="输入命令..."
-              class="cmd-input"
-            />
-            <button @click="execCmd" class="send-btn">发送</button>
-          </div>
-        </div>
-
-        <!-- ADB 调试视图 (xterm.js) -->
-        <div v-show="activeTab === 'adb'" class="adb-container" ref="adbTermContainer">
-          <div v-if="!isAdbConnected" class="adb-placeholder">
-            <button class="adb-connect-btn" @click="startAdb">初始化 ADB over WebRTC</button>
-            <p>建立 P2P 隧道并开启原生 ADB Shell</p>
-          </div>
-        </div>
-
-      </div>
-    </Teleport>
 
     <!-- 截图预览弹窗 -->
     <ScreenshotModal 
@@ -315,6 +285,7 @@
       v-if="showSettingsModal" 
       :settings="localSettings" 
       :is-connected="true"
+      :camera-support="cameraSupport"
       :is-custom="hasCustomSettings(currentId)"
       @close="showSettingsModal = false" 
       @save="saveSettings" 
@@ -324,11 +295,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch } from 'vue'
 import { debugLog, debugWarn } from '@/utils/debug'
 import { useDeviceStore } from '@/stores/devices'
 import { useWebRTC } from '@/composables/useWebRTC'
-import { useAdb } from '@/composables/useAdb'
 import { useKeymapStore } from '@/stores/keymap'
 import { KeymapEngine } from '@/utils/keymapEngine'
 import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceSettings } from '@/utils/settings'
@@ -357,6 +327,7 @@ const videoElement = ref(null)
 const hiddenInput = ref(null)
 const containerRef = ref(null)
 const isFullscreen = ref(false)
+const isWebFullscreen = ref(false)
 const CLIPBOARD_SOURCE_LOCAL = 'local'
 const CLIPBOARD_SOURCE_DEVICE = 'device'
 const CLIPBOARD_SOURCE_KEYBOARD = 'keyboard'
@@ -367,6 +338,7 @@ const pendingClipboardWrites = []
 const showScreenshot = ref(false)
 const screenshotData = ref(null)
 const showSettingsModal = ref(false)
+const cameraSupport = ref(true)
 
 const localSettings = ref(getDeviceSettings(currentId.value))
 const pageAudioMuted = ref(Boolean(localSettings.value.pageAudioMuted))
@@ -386,47 +358,60 @@ const scrcpyOptions = computed(() => {
     audio_low_latency: localSettings.value.audioLowLatency,
     debug: localSettings.value.debug,
     snapshot_interval: localSettings.value.snapshotInterval,
-    power_off: localSettings.value.powerOff
+    power_off: localSettings.value.powerOff,
+    video_codec_options: localSettings.value.videoCodecOptions,
+    camera: localSettings.value.camera
   }
 })
 
 function saveSettings(newSettings) {
   localSettings.value = newSettings
   pageAudioMuted.value = Boolean(newSettings.pageAudioMuted)
-  saveDeviceSettings(currentId.value, newSettings)
+  
+  isSavingSettingsSelf = true
+  try {
+    saveDeviceSettings(currentId.value, newSettings)
+  } finally {
+    isSavingSettingsSelf = false
+  }
   
   if (currentId.value) {
     webrtc.disconnect()
-    closeAdb()
-    webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+    currentWebRTC.value = useWebRTC(currentId.value, scrcpyOptions.value)
+    deviceStore.setActiveWebRTC(webrtc)
     setupWebRTC()
   }
 }
 
 function resetSettings() {
-  deleteDeviceSettings(currentId.value)
+  isSavingSettingsSelf = true
+  try {
+    deleteDeviceSettings(currentId.value)
+  } finally {
+    isSavingSettingsSelf = false
+  }
   localSettings.value = getDeviceSettings(currentId.value) // Loads global settings now
   pageAudioMuted.value = Boolean(localSettings.value.pageAudioMuted)
   if (currentId.value) {
     webrtc.disconnect()
-    closeAdb()
-    webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+    currentWebRTC.value = useWebRTC(currentId.value, scrcpyOptions.value)
+    deviceStore.setActiveWebRTC(webrtc)
     setupWebRTC()
   }
 }
 
-// 控制台状态
-const showConsole = ref(false)
-const inputCmd = ref('')
+const toggleConsole = () => {
+  if (deviceStore.showGlobalConsole && deviceStore.consoleDeviceId === currentId.value) {
+    deviceStore.closeGlobalConsole()
+  } else {
+    deviceStore.openGlobalConsole(currentId.value)
+  }
+}
 
 function goToFileManager() {
   window.history.pushState({}, '', '/files')
   window.dispatchEvent(new Event('popstate'))
 }
-const consoleLogs = ref([])
-const consoleRef = ref(null)
-const adbTermContainer = ref(null)
-const activeTab = ref('shell') // 'shell' | 'adb'
 
 // 手机悬浮菜单状态及拖拽
 const showMobileMenu = ref(false)
@@ -505,10 +490,29 @@ function removeCustomButton(index) {
 // 视频流统计信息
 const videoStats = ref(null)
 let statsInterval = null
+const agentVersion = ref('unknown')
+let stopAgentVersionWatch = null
+let isSavingSettingsSelf = false
 
-let webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+const currentWebRTC = shallowRef(useWebRTC(currentId.value, scrcpyOptions.value))
+const webrtc = new Proxy({}, {
+  get(target, prop) {
+    const inst = currentWebRTC.value
+    if (!inst) return undefined
+    const val = inst[prop]
+    if (typeof val === 'function') {
+      return (...args) => val.apply(inst, args)
+    }
+    return val
+  },
+  set(target, prop, value) {
+    if (currentWebRTC.value) {
+      currentWebRTC.value[prop] = value
+    }
+    return true
+  }
+})
 deviceStore.setActiveWebRTC(webrtc)
-const { isAdbConnected, initAdb, closeAdb } = useAdb(webrtc)
 
 const keymapStore = useKeymapStore()
 const keymapEngine = new KeymapEngine(
@@ -523,6 +527,10 @@ watch(() => keymapStore.activeProfile, (newProfile) => {
 function onGlobalKeyDown(e) {
   debugLog('[GlobalKey] KeyDown. target:', e.target.tagName, 'activeElement:', document.activeElement ? document.activeElement.tagName : 'none', 'key:', e.key)
   if (keymapStore.isEditMode) return;
+  
+  const hasModal = document.querySelector('.modal-overlay, .modal, .settings-modal, .card-menu, .dialog');
+  if (hasModal) return;
+
   const tag = e.target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   if (!videoNaturalSize.value.width) return;
@@ -588,6 +596,10 @@ function setDeviceClipboard(text, { paste = false, source = CLIPBOARD_SOURCE_LOC
 
 function onGlobalKeyUp(e) {
   if (keymapStore.isEditMode) return;
+
+  const hasModal = document.querySelector('.modal-overlay, .modal, .settings-modal, .card-menu, .dialog');
+  if (hasModal) return;
+
   const tag = e.target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   if (!videoNaturalSize.value.width) return;
@@ -598,13 +610,91 @@ function onGlobalKeyUp(e) {
 }
 
 function onGlobalWheel(e) {
-  if (keymapStore.isEditMode) return;
-  const tag = e.target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
-  if (!videoNaturalSize.value.width) return;
+  if (e.__cloudphoneWheelHandled) return
+  handleWheel(e)
+}
 
-  if (keymapEngine.handleWheelEvent(e, videoNaturalSize.value.width, videoNaturalSize.value.height)) {
+function onWheel(e) {
+  e.__cloudphoneWheelHandled = true
+  handleWheel(e)
+}
+
+function isPointInRenderedVideo(clientX, clientY) {
+  const video = videoElement.value
+  const videoW = videoNaturalSize.value.width
+  const videoH = videoNaturalSize.value.height
+  if (!video || !videoW || !videoH) return false
+
+  if (needRotateCoords.value) {
+    return clientX >= 0 && clientX <= window.innerWidth && clientY >= 0 && clientY <= window.innerHeight
+  }
+
+  const rect = video.getBoundingClientRect()
+  const clientRatio = rect.width / rect.height
+  const videoRatio = videoW / videoH
+  let actualW, actualH, offsetX, offsetY
+  if (clientRatio > videoRatio) {
+    actualH = rect.height
+    actualW = rect.height * videoRatio
+    offsetX = (rect.width - actualW) / 2
+    offsetY = 0
+  } else {
+    actualW = rect.width
+    actualH = rect.width / videoRatio
+    offsetX = 0
+    offsetY = (rect.height - actualH) / 2
+  }
+
+  const left = rect.left + offsetX
+  const top = rect.top + offsetY
+  return clientX >= left && clientX <= left + actualW && clientY >= top && clientY <= top + actualH
+}
+
+function wheelDeltaToScroll(delta) {
+  if (!delta) return 0
+  const magnitude = Math.max(1, Math.min(16, Math.round(Math.abs(delta) / 8)))
+  return -Math.sign(delta) * magnitude
+}
+
+function handleWheel(e) {
+  debugLog('[Wheel] fired', 'editMode:', keymapStore.isEditMode, 'target:', e.target.tagName, 'deltaX:', e.deltaX, 'deltaY:', e.deltaY)
+  if (keymapStore.isEditMode) return;
+
+  const hasModal = document.querySelector('.modal-overlay, .modal, .settings-modal, .card-menu, .dialog');
+  if (hasModal) {
+    debugLog('[Wheel] blocked by modal')
+    return
+  }
+
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) {
+    debugLog('[Wheel] blocked by input')
+    return
+  }
+  if (!videoNaturalSize.value.width) {
+    debugLog('[Wheel] blocked: no videoNaturalSize', videoNaturalSize.value)
+    return
+  }
+  if (!isPointInRenderedVideo(e.clientX, e.clientY)) {
+    debugLog('[Wheel] ignored outside rendered video')
+    return
+  }
+
+  const consumed = keymapEngine.handleWheelEvent(e, videoNaturalSize.value.width, videoNaturalSize.value.height);
+  debugLog('[Wheel] keymapEngine consumed:', consumed)
+  if (consumed) {
     e.preventDefault();
+    return;
+  }
+
+  const scrollV = wheelDeltaToScroll(e.deltaY);
+  const scrollH = wheelDeltaToScroll(e.deltaX);
+  debugLog('[Wheel] scrollV:', scrollV, 'scrollH:', scrollH, 'sendScroll:', typeof webrtc.sendScroll)
+  if (scrollV !== 0 || scrollH !== 0) {
+    const coord = rotateCoords(e.clientX, e.clientY);
+    if (webrtc.sendScroll(e.clientX, e.clientY, scrollH, scrollV, coord)) {
+      e.preventDefault();
+    }
   }
 }
 
@@ -626,16 +716,33 @@ function onVideoResize() { checkAndRecommendLayout() }
 watch(currentId, (newId) => {
   if (newId) {
     webrtc.disconnect()
-    closeAdb()
     localSettings.value = getDeviceSettings(newId)
     pageAudioMuted.value = Boolean(localSettings.value.pageAudioMuted)
-    webrtc = useWebRTC(newId, scrcpyOptions.value)
+    currentWebRTC.value = useWebRTC(newId, scrcpyOptions.value)
     deviceStore.setActiveWebRTC(webrtc)
     setupWebRTC()
   }
 })
 
 function setupWebRTC() {
+  if (stopAgentVersionWatch) {
+    stopAgentVersionWatch()
+    stopAgentVersionWatch = null
+  }
+  agentVersion.value = webrtc.agentVersion.value
+  stopAgentVersionWatch = watch(webrtc.agentVersion, (val) => {
+    agentVersion.value = val || 'unknown'
+  })
+
+  if (webrtc && webrtc.cameraSupport) {
+    cameraSupport.value = webrtc.cameraSupport.value
+    watch(webrtc.cameraSupport, (val) => {
+      cameraSupport.value = val
+    })
+  } else {
+    cameraSupport.value = true
+  }
+
   webrtc.setVideoGetter(() => videoElement.value)
   webrtc.setAudioMuted(pageAudioMuted.value)
   webrtc.connect()
@@ -646,15 +753,7 @@ function setupWebRTC() {
     showScreenshot.value = true
   })
 
-  // 设置命令结果回调
-  webrtc.onCommandResult((res) => {
-    const output = res.stdout || res.stderr || (res.exit_code === 0 ? '[Success]' : `[Failed] ExitCode: ${res.exit_code}`)
-    consoleLogs.value.push({
-      type: res.exit_code === 0 ? 'success' : 'error',
-      text: output
-    })
-    scrollToBottom()
-  })
+  // 命令结果在共用组件 DeviceConsole 内处理，此处无需配置
 
   // 设置剪切板回调
   webrtc.onClipboard((event) => {
@@ -720,6 +819,9 @@ function onWindowFocus() {
 }
 
 function handleSettingsUpdated(event) {
+  if (isSavingSettingsSelf) {
+    return
+  }
   const updatedId = event.detail?.deviceId
   if (!updatedId || updatedId === currentId.value) {
     console.log('[DeviceClient] Settings updated globally or for current device, reloading...')
@@ -727,8 +829,7 @@ function handleSettingsUpdated(event) {
     pageAudioMuted.value = Boolean(localSettings.value.pageAudioMuted)
     if (currentId.value) {
       webrtc.disconnect()
-      closeAdb()
-      webrtc = useWebRTC(currentId.value, scrcpyOptions.value)
+      currentWebRTC.value = useWebRTC(currentId.value, scrcpyOptions.value)
       deviceStore.setActiveWebRTC(webrtc)
       setupWebRTC()
     }
@@ -754,11 +855,21 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (stopAgentVersionWatch) {
+    stopAgentVersionWatch()
+    stopAgentVersionWatch = null
+  }
+  // Close PiP window if open
+  if (pipWindow) {
+    pipWindow.close()
+    pipWindow = null
+  }
+  // Remove web-fullscreen class
+  document.body.classList.remove('web-fullscreen')
   window.removeEventListener('popstate', handlePopState)
   window.removeEventListener('cloudphone-settings-updated', handleSettingsUpdated)
   webrtc.disconnect()
   deviceStore.setActiveWebRTC(null)
-  closeAdb()
   document.removeEventListener('keydown', onGlobalKeyDown)
   document.removeEventListener('keyup', onGlobalKeyUp)
   document.removeEventListener('paste', onGlobalPaste)
@@ -809,15 +920,15 @@ const statusText = computed(() => {
     'disconnected': '断开',
     'error': '错误'
   }
-  return map[webrtc.status.value] || webrtc.status.value
+  return map[currentWebRTC.value.status.value] || currentWebRTC.value.status.value
 })
 
 const loadingText = computed(() => {
-  if (webrtc.status.value === 'waiting_offer') return '等待设备...'
+  if (currentWebRTC.value.status.value === 'waiting_offer') return '等待设备...'
   return '建立连接...'
 })
 
-const showOverlay = computed(() => webrtc.status.value !== 'connected')
+const showOverlay = computed(() => currentWebRTC.value.status.value !== 'connected')
 
 // 是否需要旋转坐标（手机端且视频横屏）
 const needRotateCoords = computed(() => isMobile.value && isVideoLandscape.value)
@@ -889,30 +1000,117 @@ function toggleFullscreen() {
   }
 }
 
+function toggleWebFullscreen() {
+  if (!isWebFullscreen.value) {
+    document.body.classList.add('web-fullscreen')
+    isWebFullscreen.value = true
+  } else {
+    document.body.classList.remove('web-fullscreen')
+    isWebFullscreen.value = false
+  }
+}
+
+const pictureInPictureSupported = computed(() => {
+  return !!('documentPictureInPicture' in window) || !!document.pictureInPictureEnabled
+})
+const isPiP = ref(false)
+let pipWindow = null
+
+async function togglePictureInPicture() {
+  if (!videoElement.value) return
+
+  // If already in PiP, exit
+  if (isPiP.value) {
+    if (pipWindow) {
+      pipWindow.close()
+      // cleanup handled by pagehide listener
+    } else if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture()
+    }
+    isPiP.value = false
+    return
+  }
+
+  // Try Document PiP first (supports interaction)
+  if ('documentPictureInPicture' in window) {
+    try {
+      const video = videoElement.value
+      const vw = video.videoWidth || 480
+      const vh = video.videoHeight || 854
+      // Scale down to reasonable PiP size
+      const scale = Math.min(400 / vw, 700 / vh, 1)
+      const pipW = Math.round(vw * scale)
+      const pipH = Math.round(vh * scale)
+
+      pipWindow = await window.documentPictureInPicture.requestWindow({
+        width: pipW,
+        height: pipH,
+      })
+
+      // Copy stylesheets into PiP window
+      const styles = document.querySelectorAll('style, link[rel="stylesheet"]')
+      styles.forEach(s => {
+        pipWindow.document.head.appendChild(s.cloneNode(true))
+      })
+
+      // Add PiP-specific styles
+      const pipStyle = pipWindow.document.createElement('style')
+      pipStyle.textContent = `
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; width: 100%; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .pip-video-container { width: 100%; height: 100%; position: relative; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: contain; display: block; }
+      `
+      pipWindow.document.head.appendChild(pipStyle)
+
+      // Create container and move video into PiP window
+      const container = pipWindow.document.createElement('div')
+      container.className = 'pip-video-container'
+      container.appendChild(video)
+      pipWindow.document.body.appendChild(container)
+
+      isPiP.value = true
+
+      // When PiP window closes, move video back
+      pipWindow.addEventListener('pagehide', () => {
+        const mainContainer = containerRef.value
+        if (mainContainer && video) {
+          // Re-insert video before the textarea (hidden-keyboard-input)
+          const textarea = mainContainer.querySelector('.hidden-keyboard-input')
+          if (textarea) {
+            mainContainer.insertBefore(video, textarea)
+          } else {
+            mainContainer.appendChild(video)
+          }
+        }
+        isPiP.value = false
+        pipWindow = null
+      })
+
+      return
+    } catch (err) {
+      console.warn('Document PiP failed, falling back to standard PiP:', err)
+      pipWindow = null
+    }
+  }
+
+  // Fallback: standard PiP (view-only, no interaction)
+  try {
+    await videoElement.value.requestPictureInPicture()
+    isPiP.value = true
+    videoElement.value.addEventListener('leavepictureinpicture', () => {
+      isPiP.value = false
+    }, { once: true })
+  } catch (err) {
+    console.error('PiP error:', err)
+  }
+}
+
+
 function takeScreenshot() {
   webrtc.requestScreenshot()
 }
 
-function execCmd() {
-  if (!inputCmd.value.trim()) return
-  const cmd = inputCmd.value
-  consoleLogs.value.push({ type: 'info', cmd: cmd, text: '执行中...' })
-  webrtc.sendCommand(cmd)
-  inputCmd.value = ''
-  scrollToBottom()
-}
-
-function quickCmd(cmd) {
-  inputCmd.value = cmd
-  execCmd()
-}
-
-function toggleConsole() {
-  showConsole.value = !showConsole.value
-  if (!showConsole.value) {
-    closeAdb()
-  }
-}
 
 function quickKey(cmd) {
   webrtc.sendCommand(cmd)
@@ -920,20 +1118,6 @@ function quickKey(cmd) {
 
 function togglePageMute() {
   pageAudioMuted.value = webrtc.toggleAudioMuted()
-}
-
-function startAdb() {
-  if (adbTermContainer.value) {
-    initAdb(adbTermContainer.value)
-  }
-}
-
-function scrollToBottom() {
-  setTimeout(() => {
-    if (consoleRef.value) {
-      consoleRef.value.scrollTop = consoleRef.value.scrollHeight
-    }
-  }, 50)
 }
 
 function quitAgent() {
@@ -1049,6 +1233,16 @@ function onKeyboardPaste(e) {
 
 let mouseDown = false
 function onMouseDown(e) { 
+  if (e.button === 1) { // 中键 -> HOME
+    webrtc.sendInjectKeycode(0, 3)
+    e.preventDefault()
+    return
+  }
+  if (e.button === 2) { // 右键 -> BACK
+    webrtc.sendInjectKeycode(0, 4)
+    e.preventDefault()
+    return
+  }
   const coord = rotateCoords(e.clientX, e.clientY)
   mouseDown = true; 
   webrtc.sendTouch(0, e.clientX, e.clientY, -1, coord)
@@ -1065,6 +1259,16 @@ function onMouseMove(e) {
   }
 }
 function onMouseUp(e) { 
+  if (e.button === 1) { // 中键 -> HOME
+    webrtc.sendInjectKeycode(1, 3)
+    e.preventDefault()
+    return
+  }
+  if (e.button === 2) { // 右键 -> BACK
+    webrtc.sendInjectKeycode(1, 4)
+    e.preventDefault()
+    return
+  }
   const coord = rotateCoords(e.clientX, e.clientY)
   mouseDown = false; 
   webrtc.sendTouch(1, e.clientX, e.clientY, -1, coord)
@@ -1211,6 +1415,33 @@ function onTouchEnd(e) {
   z-index: 100;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.sidebar-agent-version {
+  font-size: 9px;
+  color: #444;
+  text-align: center;
+  width: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+  cursor: default;
+  user-select: none;
+  transition: color 0.2s;
+}
+.sidebar-agent-version:hover {
+  color: #999;
+}
+
+.fab-agent-version {
+  font-size: 10px;
+  color: #555;
+  text-align: center;
+  padding: 8px 0 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 6px;
+  user-select: none;
 }
 
 .stat-delimiter { color: #555; margin: 0 2px; }
@@ -1482,7 +1713,7 @@ function onTouchEnd(e) {
 
 /* 控制台样式 */
 .console-drawer {
-  height: 360px;
+  height: 380px;
   background: #151515;
   border-top: 2px solid var(--accent);
   display: flex;
@@ -1491,43 +1722,25 @@ function onTouchEnd(e) {
   flex-shrink: 0;
 }
 
-.console-header {
-  background: #222;
+.console-drawer-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #333;
+  padding: 0 16px;
+  background: #161b22;
+  border-bottom: 1px solid var(--border);
+  height: 40px;
+  flex-shrink: 0;
 }
 
-.console-tabs { display: flex; }
-.console-tabs button {
-  background: none; border: none; color: #666; padding: 12px 16px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent;
+.drawer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c9d1d9;
 }
-.console-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(255,255,255,0.05); }
 
-.close-console { background: none; border: none; color: #555; cursor: pointer; font-size: 18px; padding-right: 16px; }
-
-.console-history { flex: 1; overflow-y: auto; padding: 16px; font-family: 'Fira Code', 'Courier New', monospace; font-size: 12px; background: #0a0a0a; }
-.console-empty { color: #444; text-align: center; margin-top: 40px; }
-.log-item { margin-bottom: 12px; }
-.log-cmd { color: var(--accent); opacity: 0.8; font-weight: bold; }
-.log-out { white-space: pre-wrap; word-break: break-all; margin: 4px 0 0 0; color: #eee; line-height: 1.4; }
-.log-item.error .log-out { color: #ff5555; }
-.log-item.success .log-out { color: #50fa7b; }
-
-.console-shortcuts { display: flex; padding: 8px; gap: 8px; background: #1a1a1a; overflow-x: auto; border-top: 1px solid #333; }
-.console-shortcuts button { background: #252525; border: 1px solid #333; color: #999; padding: 4px 10px; border-radius: 4px; font-size: 10px; white-space: nowrap; cursor: pointer; }
-
-.console-shortcuts.danger { border-top: none; padding-top: 0; padding-bottom: 8px; }
-.console-shortcuts .quit-btn { color: #f85149; border-color: rgba(248, 81, 73, 0.3); }
-.console-shortcuts .quit-btn:hover { background: rgba(248, 81, 73, 0.1); border-color: #f85149; }
-
-.console-input-group { display: flex; padding: 10px; gap: 8px; background: #222; }
-.cmd-input { flex: 1; background: #000; border: 1px solid #444; color: #fff; padding: 8px 12px; border-radius: 4px; outline: none; }
-.cmd-input:focus { border-color: var(--accent); }
-.send-btn { background: var(--accent); color: white; border: none; padding: 0 16px; border-radius: 4px; font-weight: 600; cursor: pointer; }
-
-.adb-container { flex: 1; background: #000; position: relative; overflow: hidden; }
+.close-console { background: none; border: none; color: #555; cursor: pointer; font-size: 18px; }
+.close-console:hover { color: #f85149; }
 .adb-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666; text-align: center; padding: 20px; }
 .adb-connect-btn { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 6px; margin-bottom: 12px; cursor: pointer; font-weight: 600; }
 

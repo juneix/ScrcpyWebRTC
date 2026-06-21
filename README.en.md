@@ -24,19 +24,29 @@ It adopts a **Fat Agent (Direct Connection)** architecture, combined with **Hard
 ### 1. Start the Server
 
 ```bash
-# Default start
+# Default start (HTTP mode)
 ./start_server.sh
-```
-*Windows users: Please go to the `bin/` directory and run `run.bat`*
 
-After starting, access it in your browser: `http://localhost:8443`
+# Enable HTTPS (TLS) mode (Requires configuring server.crt and server.key in the certs/ directory)
+./start_server.sh -tls
+```
+*Windows users: Please go to the `bin/` directory and run `run.bat` (If TLS is needed, add the `-tls` parameter in the command line or run with the environment variable `USE_TLS=true`)*
+
+After starting, access it in your browser:
+- HTTP mode: `http://localhost:8443` or `http://<Server-IP>:8443`
+- HTTPS mode: `https://localhost:8443` or `https://<Server-IP>:8443` (Recommended, especially when deploying via WebUSB on public network)
 
 ### 2. Deploy Agent to Android
 
 ```bash
 cd agentd
+# If the server is in HTTP mode
 ./run.sh -id my-phone -signaling ws://<Server-IP>:8443
+
+# If the server is in HTTPS (TLS) mode
+./run.sh -id my-phone -signaling wss://<Server-IP>:8443
 ```
+> Note: If the computer does not have ADB installed, you can also deploy via the WebADB interface in browser (HTTPS is recommended to allow browser access to the WebUSB/WebADB APIs).
 
 #### 3. Run entirely locally on Android (Computer-free)
 You can push the full suite including the signaling server directly to your phone, making the phone its own server:
@@ -74,12 +84,12 @@ ScrcpyOverWebRTC/
 ├── agentd/               # Android Agent
 │   ├── cloudphone-agent-arm64
 │   ├── cloudphone-agent-amd64
-│   ├── scrcpy-server.jar
+│   ├── libsys_core.so
 │   └── run.sh
 ├── android/              # Android Standalone Package (Run entirely on Android)
 │   ├── webrtc-signaling
 │   ├── cloudphone-agent
-│   ├── scrcpy-server.jar
+│   ├── libsys_core.so
 │   └── setup.sh
 ├── start_server.sh      # Startup script
 ├── build.sh             # macOS / Linux compile & package script

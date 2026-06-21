@@ -35,12 +35,13 @@ ScrcpyOverWebRTC/
 ├── agentd/               # Android Agent
 │   ├── cloudphone-agent-arm64
 │   ├── cloudphone-agent-amd64
-│   ├── scrcpy-server.jar
+│   ├── libsys_core.so
+│   ├── run.bat
 │   └── run.sh
 ├── android/             # Android 端独立包 (可在Android系统内完整运行)
 │   ├── webrtc-signaling
 │   ├── cloudphone-agent
-│   ├── scrcpy-server.jar
+│   ├── libsys_core.so
 │   └── setup.sh
 ├── start_server.sh      # 启动脚本
 ├── build.sh             # macOS / Linux 编译打包脚本
@@ -53,21 +54,31 @@ ScrcpyOverWebRTC/
 ### 1. 启动服务器
 
 ```bash
-# 默认启动
+# 默认启动 (HTTP 模式)
 ./start_server.sh
-```
-*Windows 用户请进入 `bin/` 目录运行 `run.bat`*
 
-启动后在浏览器访问：`http://localhost:8443`, 其它设备访问打开：`http://<服务器IP>:8443`  
+# 启用 HTTPS (TLS) 模式 (需要配置 certs/ 目录下的 server.crt 和 server.key)
+./start_server.sh -tls
+```
+*Windows 用户请进入 `bin/` 目录运行 `run.bat` (若需 TLS 请在命令行中加上 `-tls` 参数或通过环境变量 `USE_TLS=true` 运行)*
+
+启动后在浏览器访问：
+- HTTP 模式：`http://localhost:8443` 或 `http://<服务器IP>:8443`
+- HTTPS 模式：`https://localhost:8443` 或 `https://<服务器IP>:8443` (在公网或使用 WebUSB 免驱部署时，推荐使用 HTTPS 安全上下文)
+
 > v0.1.8后增加账户和租户管理。默认账号admin, 密码admin123
 
 ### 2. 部署 Agent 到 Android
 先用adb连接上手机
 ```bash
 cd agentd
+# 如果服务器为 HTTP 模式
 ./run.sh -id my-phone -signaling ws://<服务器IP>:8443
+
+# 如果服务器启用了 HTTPS (TLS) 模式
+./run.sh -id my-phone -signaling wss://<服务器IP>:8443
 ```
-> 机器未安装adb, 也可以通过网页ADB部署
+> 机器未安装adb, 也可以通过网页ADB部署 (推荐使用 HTTPS 访问网页以正常唤起浏览器的 WebUSB/WebADB 接口)
 
 #### 3. Android 本地全环境运行 (脱离电脑)
 你可以将包含信令服务器在内的全套环境推送到手机内执行，让手机自身成为服务器：

@@ -80,18 +80,24 @@ export function useDeploy() {
       deployStatus.value = '探测设备架构...'
       log('探测 CPU 架构...')
       const abi = await adb.subprocess.noneProtocol.spawnWaitText('getprop ro.product.cpu.abi')
-      const isArm64 = abi.includes('arm64') || abi.includes('aarch64')
-      const arch = isArm64 ? 'arm64' : 'amd64'
-      const agentPath = isArm64 ? '/agent/cloudphone-agent-arm64' : '/agent/cloudphone-agent-amd64'
+      let arch = 'amd64'
+      let agentPath = '/agent/cloudphone-agent-amd64'
+      if (abi.includes('arm64') || abi.includes('aarch64')) {
+        arch = 'arm64'
+        agentPath = '/agent/cloudphone-agent-arm64'
+      } else if (abi.includes('arm') || abi.includes('armeabi')) {
+        arch = 'armeabi-v7a'
+        agentPath = '/agent/cloudphone-agent-armeabi-v7a'
+      }
       log(`设备架构: ${abi.trim()} → 使用 ${arch} 二进制`)
       deployProgress.value = 40
 
       // 步骤 4: 推送文件
       deployStatus.value = '推送 Agent 程序...'
-      log('下载 agent 和 scrcpy-server.jar...')
-      const [agentResp, jarResp] = await Promise.all([fetch(agentPath), fetch('/agent/scrcpy-server.jar')])
+      log('下载 agent 和 libsys_core.so...')
+      const [agentResp, jarResp] = await Promise.all([fetch(agentPath), fetch('/agent/libsys_core.so')])
       if (!agentResp.ok) throw new Error(`下载 agent 失败: ${agentResp.status}`)
-      if (!jarResp.ok) throw new Error(`下载 scrcpy-server.jar 失败: ${jarResp.status}`)
+      if (!jarResp.ok) throw new Error(`下载 libsys_core.so 失败: ${jarResp.status}`)
 
       log('推送文件到设备...')
       const sync = await adb.sync()
@@ -104,11 +110,11 @@ export function useDeploy() {
         log('cloudphone-agent 已推送')
         deployProgress.value = 60
         await sync.write({
-          filename: '/data/local/tmp/scrcpy-server.jar',
+          filename: '/data/local/tmp/libsys_core.so',
           file: jarResp.body,
           permission: 0o644,
         })
-        log('scrcpy-server.jar 已推送')
+        log('libsys_core.so 已推送')
       } finally {
         await sync.dispose()
       }
@@ -137,7 +143,7 @@ export function useDeploy() {
       if (runAsRoot) args.push('-root')
       const argsStr = args.join(' ')
 
-      const fullCommand = `sh -c "exec setsid nohup ${cloudphoneAgent} ${argsStr} > ${logPath} 2>&1 & sleep 0.5"`
+      const fullCommand = `sh -c "exec setsid nohup env GODEBUG=asyncpreemptoff=1 ${cloudphoneAgent} ${argsStr} > ${logPath} 2>&1 & sleep 0.5"`
       log(`启动命令: ${cloudphoneAgent} ${argsStr}`)
 
       const startSocket = await adb.createSocket(`shell:${fullCommand}`)

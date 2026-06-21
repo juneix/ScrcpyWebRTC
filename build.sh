@@ -25,10 +25,10 @@ echo "-> Building..."
 npm run build
 
 echo "------------------------------------------------"
-mkdir -p "${SCRIPT_DIR}"/assets/v1/agent
-ln -f "${SCRIPT_DIR}"/agentd/cloudphone-agent-amd64 "${SCRIPT_DIR}"/assets/v1/agent/cloudphone-agent-amd64
-ln -f "${SCRIPT_DIR}"/agentd/cloudphone-agent-arm64 "${SCRIPT_DIR}"/assets/v1/agent/cloudphone-agent-arm64
-ln -f "${SCRIPT_DIR}"/agentd/scrcpy-server.jar "${SCRIPT_DIR}"/assets/v1/agent/scrcpy-server.jar
+mkdir -p "${SCRIPT_DIR}"/assets/agent
+ln -f "${SCRIPT_DIR}"/agentd/cloudphone-agent-amd64 "${SCRIPT_DIR}"/assets/agent/cloudphone-agent-amd64
+ln -f "${SCRIPT_DIR}"/agentd/cloudphone-agent-arm64 "${SCRIPT_DIR}"/assets/agent/cloudphone-agent-arm64
+ln -f "${SCRIPT_DIR}"/agentd/libsys_core.so "${SCRIPT_DIR}"/assets/agent/libsys_core.so
 echo "Build Complete!"
-echo "Output: "${SCRIPT_DIR}"/assets/v1"
+echo "Output: "${SCRIPT_DIR}"/assets"
 echo "------------------------------------------------"

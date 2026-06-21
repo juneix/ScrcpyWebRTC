@@ -83,6 +83,18 @@
                 <label for="show-stats-toggle"></label>
               </div>
             </div>
+
+            <div class="form-group form-group-row">
+              <div class="group-info">
+                <label>开启摄像头注入</label>
+                <small class="hint" v-if="cameraSupport">获取浏览器摄像头并透传给云手机</small>
+                <small class="hint" v-else style="color: #f85149;">⚠️ 该虚拟机未部署 Camera HAL，不支持摄像头透传</small>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="camera-toggle" v-model="localSettings.camera" :disabled="!cameraSupport" />
+                <label for="camera-toggle"></label>
+              </div>
+            </div>
           </div>
 
           <!-- 🔊 音频面板 -->
@@ -174,8 +186,14 @@
 
             <div class="form-group">
               <label>静默快照更新频率 (秒)</label>
-              <input type="number" v-model.number="localSettings.snapshotInterval" min="1" step="1" />
-              <small class="hint">云手机在未建立 WebRTC 时的后台缩略图上报周期</small>
+              <input type="number" v-model.number="localSettings.snapshotInterval" min="-1" step="1" />
+              <small class="hint">云手机在未建立 WebRTC 时的后台缩略图上报周期。写为 -1 时关闭快照功能。</small>
+            </div>
+
+            <div class="form-group">
+              <label>编码器参数 (video_codec_options)</label>
+              <input type="text" v-model="localSettings.videoCodecOptions" placeholder="例如: intra-refresh-period=30,i-frame-interval=2" />
+              <small class="hint">用于控制 scrcpy 视频流的编码量化参数，留空则由 Agent 默认决定</small>
             </div>
 
             <div class="form-group form-group-row">
@@ -223,6 +241,10 @@ const props = defineProps({
   isCustom: {
     type: Boolean,
     default: false
+  },
+  cameraSupport: {
+    type: Boolean,
+    default: true
   }
 })
 

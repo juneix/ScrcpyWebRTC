@@ -65,7 +65,7 @@
         <section class="panel devices-panel">
           <div class="panel-header">
             <h3>设备分配</h3>
-            <span>{{ selectedDeviceId || '未选择' }}</span>
+            <span>已选 {{ selectedDeviceIds.length }} 台</span>
           </div>
 
           <div v-if="devices.length === 0" class="empty-state">
@@ -74,21 +74,40 @@
 
           <div v-else class="assignment-layout">
             <div class="device-list">
-              <button
+              <!-- 全选控制 -->
+              <div class="device-list-header">
+                <label class="select-all-label">
+                  <input
+                    type="checkbox"
+                    :checked="isAllDevicesSelected"
+                    :indeterminate="isSomeDevicesSelected"
+                    @change="toggleSelectAllDevices"
+                  >
+                  <span>全选 ({{ devices.length }})</span>
+                </label>
+              </div>
+              <label
                 v-for="device in devices"
                 :key="device.id"
                 class="device-row"
-                :class="{ active: selectedDeviceId === device.id }"
-                @click="selectedDeviceId = device.id"
+                :class="{ active: selectedDeviceIds.includes(device.id) }"
               >
-                <span class="device-id">{{ device.id }}</span>
+                <div class="device-row-left">
+                  <input
+                    type="checkbox"
+                    :value="device.id"
+                    v-model="selectedDeviceIds"
+                    class="device-checkbox"
+                  >
+                  <span class="device-id">{{ device.id }}</span>
+                </div>
                 <span class="device-tag-count">{{ tagStore.getTagIdsForDevice(device.id).length }}</span>
-              </button>
+              </label>
             </div>
 
             <div class="assignment-panel">
-              <div v-if="!selectedDeviceId" class="empty-state">
-                选择一台设备后分配标签
+              <div v-if="selectedDeviceIds.length === 0" class="empty-state">
+                选择设备后批量分配标签
               </div>
               <div v-else-if="tagStore.tags.length === 0" class="empty-state">
                 先创建标签
@@ -97,8 +116,9 @@
                 <label v-for="tag in tagStore.tags" :key="tag.id" class="tag-checkbox">
                   <input
                     type="checkbox"
-                    :checked="tagStore.getTagIdsForDevice(selectedDeviceId).includes(tag.id)"
-                    @change="tagStore.toggleDeviceTag(selectedDeviceId, tag.id)"
+                    :checked="isTagFullySelected(tag.id)"
+                    :indeterminate="isTagPartiallySelected(tag.id)"
+                    @change="handleTagCheckboxChange(tag.id, $event.target.checked)"
                   >
                   <span class="tag-chip" :style="tagStyle(tag)">
                     {{ tag.name }}
@@ -114,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { DEFAULT_TAG_COLORS, useTagStore } from '@/stores/tags'
 
 const props = defineProps({
@@ -131,7 +151,7 @@ const props = defineProps({
 defineEmits(['close'])
 
 const tagStore = useTagStore()
-const selectedDeviceId = ref('')
+const selectedDeviceIds = ref([])
 const newTagName = ref('')
 const newTagColor = ref(DEFAULT_TAG_COLORS[0])
 const tagError = ref('')
@@ -140,18 +160,60 @@ watch(
   () => [props.initialDeviceId, props.devices],
   () => {
     if (props.initialDeviceId && props.devices.some(device => device.id === props.initialDeviceId)) {
-      selectedDeviceId.value = props.initialDeviceId
+      selectedDeviceIds.value = [props.initialDeviceId]
       return
     }
-    if (selectedDeviceId.value && !props.devices.some(device => device.id === selectedDeviceId.value)) {
-      selectedDeviceId.value = ''
-    }
-    if (!selectedDeviceId.value && props.devices.length > 0) {
-      selectedDeviceId.value = props.devices[0].id
+    if (props.devices.length > 0) {
+      selectedDeviceIds.value = [props.devices[0].id]
+    } else {
+      selectedDeviceIds.value = []
     }
   },
   { immediate: true }
 )
+
+const isAllDevicesSelected = computed(() => {
+  return props.devices.length > 0 && selectedDeviceIds.value.length === props.devices.length
+})
+
+const isSomeDevicesSelected = computed(() => {
+  return selectedDeviceIds.value.length > 0 && selectedDeviceIds.value.length < props.devices.length
+})
+
+function toggleSelectAllDevices(event) {
+  if (event.target.checked) {
+    selectedDeviceIds.value = props.devices.map(d => d.id)
+  } else {
+    selectedDeviceIds.value = []
+  }
+}
+
+function isTagFullySelected(tagId) {
+  if (selectedDeviceIds.value.length === 0) return false
+  return selectedDeviceIds.value.every(deviceId => 
+    tagStore.getTagIdsForDevice(deviceId).includes(tagId)
+  )
+}
+
+function isTagPartiallySelected(tagId) {
+  if (selectedDeviceIds.value.length === 0) return false
+  const count = selectedDeviceIds.value.filter(deviceId => 
+    tagStore.getTagIdsForDevice(deviceId).includes(tagId)
+  ).length
+  return count > 0 && count < selectedDeviceIds.value.length
+}
+
+function handleTagCheckboxChange(tagId, checked) {
+  selectedDeviceIds.value.forEach(deviceId => {
+    const currentTags = tagStore.getTagIdsForDevice(deviceId)
+    const hasTag = currentTags.includes(tagId)
+    if (checked && !hasTag) {
+      tagStore.setDeviceTags(deviceId, [...currentTags, tagId])
+    } else if (!checked && hasTag) {
+      tagStore.setDeviceTags(deviceId, currentTags.filter(id => id !== tagId))
+    }
+  })
+}
 
 function tagStyle(tag) {
   return {
@@ -413,6 +475,29 @@ function deleteTag(tag) {
   overflow: auto;
 }
 
+.device-list-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.select-all-label input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .device-row {
   width: 100%;
   display: flex;
@@ -424,11 +509,29 @@ function deleteTag(tag) {
   background: transparent;
   border-radius: 6px;
   text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
 }
 
 .device-row:hover,
 .device-row.active {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.device-row-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.device-checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .device-id {

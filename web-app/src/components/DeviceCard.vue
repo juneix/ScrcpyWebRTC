@@ -11,40 +11,40 @@
       <div class="overlay">
         <span class="play-hint">点击进入控制</span>
       </div>
-    </div>
-    
-    <div class="card-footer">
-      <div class="device-main-info">
-        <h3 class="device-id-text">{{ device.id }}</h3>
-        <span class="status-badge" :class="statusClass">
-          {{ statusText }}
-        </span>
+      <!-- 悬浮页脚 -->
+      <div class="card-footer-overlay" @click.stop>
+        <div class="device-main-info">
+          <h3 class="device-id-text" :title="device.id">{{ device.id }}</h3>
+          <span class="status-badge" :class="statusClass">
+            {{ statusText }}
+          </span>
+        </div>
+        <div v-if="device.info?.model" class="device-meta">
+          <span class="model-name">{{ device.info.model }}</span>
+        </div>
+        <div v-if="tags.length > 0" class="device-tags">
+          <span
+            v-for="tag in visibleTags"
+            :key="tag.id"
+            class="device-tag"
+            :style="tagStyle(tag)"
+            :title="tag.name"
+          >
+            {{ tag.name }}
+          </span>
+          <span v-if="hiddenTagCount > 0" class="device-tag more-tag">
+            +{{ hiddenTagCount }}
+          </span>
+        </div>
+        <!-- 功能菜单按钮 -->
+        <button class="menu-btn" @click.stop="toggleMenu" title="更多操作">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="4" cy="8" r="1.5"/>
+            <circle cx="8" cy="8" r="1.5"/>
+            <circle cx="12" cy="8" r="1.5"/>
+          </svg>
+        </button>
       </div>
-      <div v-if="device.info?.model" class="device-meta">
-        <span class="model-name">{{ device.info.model }}</span>
-      </div>
-      <div v-if="tags.length > 0" class="device-tags">
-        <span
-          v-for="tag in visibleTags"
-          :key="tag.id"
-          class="device-tag"
-          :style="tagStyle(tag)"
-          :title="tag.name"
-        >
-          {{ tag.name }}
-        </span>
-        <span v-if="hiddenTagCount > 0" class="device-tag more-tag">
-          +{{ hiddenTagCount }}
-        </span>
-      </div>
-      <!-- 功能菜单按钮 -->
-      <button class="menu-btn" @click.stop="toggleMenu" title="更多操作">
-        <svg viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="4" cy="8" r="1.5"/>
-          <circle cx="8" cy="8" r="1.5"/>
-          <circle cx="12" cy="8" r="1.5"/>
-        </svg>
-      </button>
     </div>
 
     <!-- 下拉菜单 -->
@@ -269,17 +269,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
   transform: translateY(0);
 }
 
-.card-footer {
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  position: relative;
-  flex-shrink: 0;
-  height: 80px; /* 固定高度，防止不同卡片高度参差不齐导致按钮错位 */
+.card-footer-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(13, 17, 23, 0.95) 0%, rgba(13, 17, 23, 0.7) 60%, rgba(13, 17, 23, 0) 100%);
+  padding: 12px 14px 10px;
+  z-index: 5;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .device-main-info {
@@ -452,7 +453,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
     flex: 1;
     min-height: 0;
   }
-  .card-footer {
+  .card-footer-overlay {
     padding: 8px 10px;
   }
   .device-id-text {

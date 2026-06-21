@@ -16,7 +16,9 @@ export const defaultSettings = {
   powerOff: false,
   connectionPath: 'auto',
   ipPreference: 'auto',
-  showStats: true
+  showStats: true,
+  videoCodecOptions: '',
+  camera: false
 }
 
 function parseSettings(parsed) {
@@ -37,6 +39,8 @@ function parseSettings(parsed) {
   if (parsed.connectionPath === undefined) parsed.connectionPath = defaultSettings.connectionPath
   if (parsed.ipPreference === undefined) parsed.ipPreference = defaultSettings.ipPreference
   if (parsed.showStats === undefined) parsed.showStats = defaultSettings.showStats
+  if (parsed.videoCodecOptions === undefined) parsed.videoCodecOptions = defaultSettings.videoCodecOptions
+  if (parsed.camera === undefined) parsed.camera = defaultSettings.camera
   return parsed
 }
 

@@ -426,6 +426,12 @@ function updateNode() {
 function onKeyBind(e) {
   const node = selectedNode.value
   if (!node || (node.type !== 'tap' && node.type !== 'swipe')) return
+  
+  if (e.key === 'Escape') {
+    e.target.blur()
+    return
+  }
+  
   // 过滤一些无用按键
   if (['Shift', 'Control', 'Alt', 'Meta', 'Tab', 'CapsLock'].includes(e.key)) return
   node.key = e.key.toLowerCase()

@@ -7,6 +7,14 @@ export const useDeviceStore = defineStore('devices', () => {
   const loading = ref(false)
   const error = ref(null)
 
+  const isLicenseExpired = ref(false)
+  const licenseErrorMsg = ref('')
+  const globalMachineID = ref('')
+  const licenseMaxDevices = ref(50)
+  const licenseExpiresAt = ref('')
+  const licenseDaysRemaining = ref(0)
+  const licenseStatus = ref('valid')
+
   const onlineDevices = computed(() => 
     [...devices.value]
       .filter(d => d.status === 'online')
@@ -206,6 +214,8 @@ export const useDeviceStore = defineStore('devices', () => {
   function initSignaling() {
     if (globalWs) return
 
+    fetchLicenseStatus()
+
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const token = localStorage.getItem('auth_token') || ''
     const url = `${protocol}//${location.host}/connect_client?token=${encodeURIComponent(token)}`
@@ -228,6 +238,10 @@ export const useDeviceStore = defineStore('devices', () => {
           updateFromList(msg.devices)
         } else if (msg.type === 'device_metrics') {
           updateMetrics(msg.device_id, msg.metrics)
+        } else if (msg.error === 'license_expired') {
+          isLicenseExpired.value = true
+          licenseErrorMsg.value = msg.reason || '当前版本已不受支持，请升级'
+          globalMachineID.value = msg.machine_id || ''
         }
       } catch (e) {
         console.error('[Store] Message error:', e)
@@ -237,6 +251,52 @@ export const useDeviceStore = defineStore('devices', () => {
     globalWs.onclose = () => {
       globalWs = null
       setTimeout(initSignaling, 3000) // 自动重连
+    }
+  }
+
+  async function fetchLicenseStatus() {
+    try {
+      const res = await fetch('/api/license_status')
+      if (res.ok) {
+        const data = await res.json()
+        isLicenseExpired.value = data.license_expired
+        licenseErrorMsg.value = data.error_msg || ''
+        globalMachineID.value = data.machine_id || ''
+        licenseMaxDevices.value = data.max_devices || 50
+        licenseExpiresAt.value = data.expires_at || ''
+        licenseDaysRemaining.value = data.days_remaining || 0
+        licenseStatus.value = data.status || 'valid'
+      }
+    } catch (e) {
+      console.error('Failed to fetch license status:', e)
+    }
+  }
+
+  async function activateLicense(licenseKey) {
+    try {
+      const res = await fetch('/api/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '')
+        },
+        body: JSON.stringify({ license: licenseKey })
+      })
+      const data = await res.json()
+      if (res.ok && data.status === 'success') {
+        isLicenseExpired.value = false
+        licenseErrorMsg.value = ''
+        // 成功后自动重新拉取设备列表和初始化信令
+        await fetchDevices()
+        if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+          initSignaling()
+        }
+        return { success: true }
+      } else {
+        return { success: false, error: data.error || '激活失败，请检查激活码是否有效' }
+      }
+    } catch (e) {
+      return { success: false, error: e.message || '网络请求错误' }
     }
   }
 
@@ -262,6 +322,53 @@ export const useDeviceStore = defineStore('devices', () => {
     }
   }
 
+  // 全局下半屏控制台状态
+  const showGlobalConsole = ref(false)
+  const consoleDeviceId = ref('')
+  const globalConsoleHeight = ref(parseInt(localStorage.getItem('cloudphone_console_height') || '380', 10))
+
+  function openGlobalConsole(deviceId) {
+    if (deviceId) {
+      consoleDeviceId.value = deviceId
+    } else {
+      // fallback
+      if (activeDeviceId.value) {
+        consoleDeviceId.value = activeDeviceId.value
+      } else if (onlineDevices.value.length > 0) {
+        consoleDeviceId.value = onlineDevices.value[0].id
+      }
+    }
+    showGlobalConsole.value = true
+  }
+
+  function toggleGlobalConsole() {
+    if (showGlobalConsole.value) {
+      showGlobalConsole.value = false
+    } else {
+      // 开启时做 fallback 检查
+      if (!consoleDeviceId.value) {
+        if (activeDeviceId.value) {
+          consoleDeviceId.value = activeDeviceId.value
+        } else if (onlineDevices.value.length > 0) {
+          consoleDeviceId.value = onlineDevices.value[0].id
+        }
+      }
+      showGlobalConsole.value = true
+    }
+  }
+
+  function closeGlobalConsole() {
+    showGlobalConsole.value = false
+  }
+
+  function setConsoleHeight(height) {
+    const validHeight = Math.max(200, Math.min(800, height))
+    globalConsoleHeight.value = validHeight
+    try {
+      localStorage.setItem('cloudphone_console_height', String(validHeight))
+    } catch(e) {}
+  }
+
   return {
     devices,
     offlineDevices,
@@ -272,6 +379,9 @@ export const useDeviceStore = defineStore('devices', () => {
     activeDevice,
     onlineDevices,
     deviceHistory,
+    showGlobalConsole,
+    consoleDeviceId,
+    globalConsoleHeight,
     fetchDevices,
     addDevice,
     removeDevice,
@@ -282,6 +392,19 @@ export const useDeviceStore = defineStore('devices', () => {
     quitAgent,
     setActiveDevice,
     setActiveWebRTC,
-    clearActiveDevice
+    clearActiveDevice,
+    openGlobalConsole,
+    toggleGlobalConsole,
+    closeGlobalConsole,
+    setConsoleHeight,
+    isLicenseExpired,
+    licenseErrorMsg,
+    globalMachineID,
+    licenseMaxDevices,
+    licenseExpiresAt,
+    licenseDaysRemaining,
+    licenseStatus,
+    fetchLicenseStatus,
+    activateLicense
   }
 })

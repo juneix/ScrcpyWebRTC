@@ -6,6 +6,8 @@ export function useWebRTC(deviceId, options = {}) {
   const status = ref('disconnected')
   const error = ref(null)
   const audioMuted = ref(false)
+  const cameraSupport = ref(true)
+  const agentVersion = ref('unknown')
 
   let ws = null
   let pc = null
@@ -25,6 +27,10 @@ export function useWebRTC(deviceId, options = {}) {
   let touchSeq = 0
   const DEVICE_W = ref(1080)
   const DEVICE_H = ref(1920)
+
+  let cameraChannel = null
+  let cameraStream = null
+  let cameraIntervalId = null
 
   function getOption(key, def) {
     try {
@@ -123,11 +129,16 @@ export function useWebRTC(deviceId, options = {}) {
   }
 
   function handleDeviceInfo(info) {
-    if (info && info.displays && info.displays.length > 0) {
-      const display = info.displays[0]
-      DEVICE_W.value = display.x_res || 1080
-      DEVICE_H.value = display.y_res || 1920
-      debugLog(`[WebRTC] Device dimensions updated: ${DEVICE_W.value}x${DEVICE_H.value}`)
+    if (info) {
+      if (info.app_version) {
+        agentVersion.value = info.app_version
+      }
+      if (info.displays && info.displays.length > 0) {
+        const display = info.displays[0]
+        DEVICE_W.value = display.x_res || 1080
+        DEVICE_H.value = display.y_res || 1920
+        debugLog(`[WebRTC] Device dimensions updated: ${DEVICE_W.value}x${DEVICE_H.value}`)
+      }
     }
   }
 function handleDeviceMessage(payload) {
@@ -136,6 +147,10 @@ function handleDeviceMessage(payload) {
   switch (payload.type) {
     case 'offer':
       debugLog('[WebRTC] Received offer, length:', payload.sdp.length)
+      cameraSupport.value = payload.camera_support !== false
+      if (!cameraSupport.value) {
+        debugWarn('[WebRTC] Device does not support camera injection (Camera HAL not found)')
+      }
       createPeerConnection()
       const filteredOfferSdp = filterSDPCandidates(payload.sdp)
       pc.setRemoteDescription(new RTCSessionDescription({
@@ -209,8 +224,20 @@ function handleDeviceMessage(payload) {
     case 'command_result':
       handleCommandResult(payload)
       break
+
+    case 'scrcpy_error':
+      console.error('[WebRTC] scrcpy-server error:', payload.message)
+      error.value = payload.message || 'scrcpy-server 启动失败'
+      status.value = 'error'
+      if (pc) {
+        pc.close()
+        pc = null
+      }
+      break
     }
   }
+
+  const commandPromises = new Map()
 
   function sendCommand(command) {
     const requestId = Math.random().toString(36).substring(7)
@@ -225,12 +252,32 @@ function handleDeviceMessage(payload) {
     return requestId
   }
 
+  function executeCommand(command, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      const requestId = sendCommand(command)
+      const timer = setTimeout(() => {
+        if (commandPromises.has(requestId)) {
+          commandPromises.delete(requestId)
+          reject(new Error(`命令执行超时 (${timeoutMs}ms)`))
+        }
+      }, timeoutMs)
+      commandPromises.set(requestId, { resolve, reject, timer })
+    })
+  }
+
   let commandCallback = null
   function onCommandResult(callback) {
     commandCallback = callback
   }
 
   function handleCommandResult(result) {
+    const reqId = result.request_id
+    if (reqId && commandPromises.has(reqId)) {
+      const { resolve, timer } = commandPromises.get(reqId)
+      clearTimeout(timer)
+      commandPromises.delete(reqId)
+      resolve(result)
+    }
     if (commandCallback) {
       commandCallback(result)
     }
@@ -527,6 +574,34 @@ function handleDeviceMessage(payload) {
         clipboardChannel.onclose = () => {
           debugLog('[DataChannel] clipboard-channel CLOSED')
         }
+      } else if (evt.channel.label === 'camera-channel') {
+        cameraChannel = evt.channel
+        cameraChannel.onopen = () => {
+          debugLog('[DataChannel] camera-channel OPEN')
+        }
+        cameraChannel.onmessage = (evt) => {
+          try {
+            let dataStr = evt.data
+            if (evt.data instanceof ArrayBuffer) {
+              dataStr = new TextDecoder().decode(evt.data)
+            }
+            const msg = JSON.parse(dataStr)
+            if (msg.action === 'start') {
+              debugLog('[Camera] Received start command from Agent')
+              startCameraStreaming()
+            } else if (msg.action === 'stop') {
+              debugLog('[Camera] Received stop command from Agent')
+              stopCameraStreaming()
+            }
+          } catch (e) {
+            // 忽略非控制消息解析错误
+          }
+        }
+        cameraChannel.onclose = () => {
+          debugLog('[DataChannel] camera-channel CLOSED')
+          stopCameraStreaming()
+        }
+        cameraChannel.onerror = (e) => console.error('[DataChannel] camera-channel Error:', e)
       }
     }
   }
@@ -759,6 +834,90 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  function sendScroll(clientX, clientY, scrollH, scrollV, rotatedCoord = null) {
+    debugLog('[sendScroll] called', 'inputChannel:', inputChannel?.readyState, 'scrollH:', scrollH, 'scrollV:', scrollV)
+    if (!inputChannel || inputChannel.readyState !== 'open') {
+      debugWarn('[sendScroll] blocked: channel not open, state:', inputChannel?.readyState)
+      return false
+    }
+    const video = videoElementGetter ? videoElementGetter() : null
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      debugWarn('[sendScroll] blocked: no video', video?.videoWidth, video?.videoHeight)
+      return false
+    }
+
+    const seq = ++touchSeq
+    const clientTsMs = Date.now()
+
+    const videoW = video.videoWidth
+    const videoH = video.videoHeight
+    const isVideoLandscape = videoW > videoH
+    const targetW = isVideoLandscape ? DEVICE_H.value : DEVICE_W.value
+    const targetH = isVideoLandscape ? DEVICE_W.value : DEVICE_H.value
+
+    let finalX, finalY
+
+    if (rotatedCoord && rotatedCoord.isRotated) {
+      const x = Math.round(rotatedCoord.x / videoW * targetW)
+      const y = Math.round(rotatedCoord.y / videoH * targetH)
+      finalX = Math.max(0, Math.min(targetW, x))
+      finalY = Math.max(0, Math.min(targetH, y))
+    } else {
+      const rect = video.getBoundingClientRect()
+      const clientW = rect.width
+      const clientH = rect.height
+
+      const videoRatio = videoW / videoH
+      const clientRatio = clientW / clientH
+
+      let actualW, actualH, offsetX, offsetY
+      if (clientRatio > videoRatio) {
+        actualH = clientH
+        actualW = clientH * videoRatio
+        offsetX = (clientW - actualW) / 2
+        offsetY = 0
+      } else {
+        actualW = clientW
+        actualH = clientW / videoRatio
+        offsetX = 0
+        offsetY = (clientH - actualH) / 2
+      }
+
+      const relativeX = clientX - rect.left - offsetX
+      const relativeY = clientY - rect.top - offsetY
+
+      const x = Math.round(relativeX / actualW * targetW)
+      const y = Math.round(relativeY / actualH * targetH)
+
+      finalX = Math.max(0, Math.min(targetW, x))
+      finalY = Math.max(0, Math.min(targetH, y))
+    }
+
+    const msg = JSON.stringify({
+      type: 'inject_scroll',
+      seq,
+      client_ts_ms: clientTsMs,
+      x: finalX,
+      y: finalY,
+      w: targetW,
+      h: targetH,
+      scroll_h: scrollH,
+      scroll_v: scrollV
+    })
+
+    debugInfo('[ScrollTrace] dc-send', {
+      seq,
+      x: finalX,
+      y: finalY,
+      w: targetW,
+      h: targetH,
+      scrollH,
+      scrollV
+    })
+    inputChannel.send(msg)
+    return true
+  }
+
   function requestScreenshot() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
@@ -927,10 +1086,100 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  async function startCameraStreaming() {
+    debugLog('[Camera] startCameraStreaming() called, camera option:', options.camera)
+    if (!options.camera || !cameraSupport.value) {
+      if (!cameraSupport.value) {
+        debugWarn('[Camera] Intercepted camera streaming: device does not support camera')
+      }
+      return
+    }
+    stopCameraStreaming()
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const errMsg = '由于浏览器安全限制，摄像头注入功能仅支持在安全上下文 (HTTPS 或 localhost) 下使用。请使用 HTTPS 部署，或在本地开发环境下测试。'
+      console.error('[WebRTC] ' + errMsg)
+      alert(errMsg)
+      return
+    }
+
+    debugLog('[WebRTC] Requesting local camera stream...')
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          width: 640, 
+          height: 480, 
+          frameRate: 30,
+          facingMode: { ideal: "environment" }
+        }
+      })
+      debugLog('[WebRTC] Local camera stream acquired')
+    } catch (err) {
+      console.error('[WebRTC] Failed to acquire camera:', err)
+      alert('获取摄像头权限失败: ' + err.message)
+      return
+    }
+
+    const video = document.createElement('video')
+    video.autoplay = true
+    video.playsInline = true
+    video.muted = true
+    video.srcObject = cameraStream
+    
+    try {
+      await video.play()
+    } catch (e) {
+      console.warn('[WebRTC] Offscreen camera video play() failed:', e)
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 480
+    const ctx = canvas.getContext('2d')
+
+    cameraIntervalId = setInterval(() => {
+      if (!cameraChannel || cameraChannel.readyState !== 'open') {
+        stopCameraStreaming()
+        return
+      }
+
+      ctx.drawImage(video, 0, 0, 640, 480)
+      canvas.toBlob((blob) => {
+        if (!blob || !cameraChannel || cameraChannel.readyState !== 'open') return
+        const reader = new FileReader()
+        reader.onload = () => {
+          if (cameraChannel && cameraChannel.readyState === 'open') {
+            cameraChannel.send(reader.result)
+          }
+        }
+        reader.readAsArrayBuffer(blob)
+      }, 'image/jpeg', 0.6)
+    }, 1000 / 30)
+  }
+
+  function stopCameraStreaming() {
+    if (cameraIntervalId) {
+      clearInterval(cameraIntervalId)
+      cameraIntervalId = null
+    }
+    if (cameraStream) {
+      try {
+        cameraStream.getTracks().forEach(track => track.stop())
+      } catch (e) {}
+      cameraStream = null
+    }
+    debugLog('[WebRTC] Camera streaming stopped and tracks released')
+  }
+
   function disconnect() {
+    stopCameraStreaming()
     if (pc) {
       pc.close()
       pc = null
+    }
+    const video = videoElementGetter ? videoElementGetter() : null
+    if (video) {
+      video.srcObject = null
     }
     videoStream = null
     cleanupAudioPlayback()
@@ -991,13 +1240,17 @@ function handleDeviceMessage(payload) {
     status,
     error,
     audioMuted,
+    cameraSupport,
+    agentVersion,
     setVideoGetter,
     connect,
     disconnect,
     sendTouch,
+    sendScroll,
     requestScreenshot,
     onScreenshot,
     sendCommand,
+    executeCommand,
     onCommandResult,
     onAdbData,
     sendAdbData,

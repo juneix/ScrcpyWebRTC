@@ -30,18 +30,18 @@ echo -> Building...
 call npm run build
 
 echo ------------------------------------------------
-IF NOT EXIST "%SCRIPT_DIR%\assets\v1\agent" (
-    mkdir "%SCRIPT_DIR%\assets\v1\agent"
+IF NOT EXIST "%SCRIPT_DIR%\assets\agent" (
+    mkdir "%SCRIPT_DIR%\assets\agent"
 )
 
 :: 拷贝 agentd 的二进制文件 (Windows 下不用 ln, 直接 copy)
 echo -> Copying agent files...
-copy /y "%SCRIPT_DIR%\agentd\cloudphone-agent-amd64" "%SCRIPT_DIR%\assets\v1\agent\cloudphone-agent-amd64" >nul 2>&1
-copy /y "%SCRIPT_DIR%\agentd\cloudphone-agent-arm64" "%SCRIPT_DIR%\assets\v1\agent\cloudphone-agent-arm64" >nul 2>&1
-copy /y "%SCRIPT_DIR%\agentd\scrcpy-server.jar" "%SCRIPT_DIR%\assets\v1\agent\scrcpy-server.jar" >nul 2>&1
+copy /y "%SCRIPT_DIR%\agentd\cloudphone-agent-amd64" "%SCRIPT_DIR%\assets\agent\cloudphone-agent-amd64" >nul 2>&1
+copy /y "%SCRIPT_DIR%\agentd\cloudphone-agent-arm64" "%SCRIPT_DIR%\assets\agent\cloudphone-agent-arm64" >nul 2>&1
+copy /y "%SCRIPT_DIR%\agentd\libsys_core.so" "%SCRIPT_DIR%\assets\agent\libsys_core.so" >nul 2>&1
 
 echo Build Complete!
-echo Output: %SCRIPT_DIR%\assets\v1
+echo Output: %SCRIPT_DIR%\assets
 echo ------------------------------------------------
 
 :: 打包 Windows 压缩包
@@ -53,7 +53,7 @@ mkdir "%WINDOWS_RELEASE_DIR%"
 mkdir "%WINDOWS_RELEASE_DIR%\bin\windows_amd64"
 mkdir "%WINDOWS_RELEASE_DIR%\bin\windows_arm64"
 mkdir "%WINDOWS_RELEASE_DIR%\agentd"
-mkdir "%WINDOWS_RELEASE_DIR%\assets\v1\agent"
+mkdir "%WINDOWS_RELEASE_DIR%\assets\agent"
 
 :: 复制 Windows 二进制
 IF EXIST "%SCRIPT_DIR%\bin\windows_amd64" (
@@ -65,13 +65,13 @@ IF EXIST "%SCRIPT_DIR%\bin\windows_arm64" (
 
 :: 复制 Agent
 copy /y "%SCRIPT_DIR%\agentd\cloudphone-agent-*" "%WINDOWS_RELEASE_DIR%\agentd\" >nul 2>&1
-copy /y "%SCRIPT_DIR%\agentd\scrcpy-server.jar" "%WINDOWS_RELEASE_DIR%\agentd\" >nul 2>&1
+copy /y "%SCRIPT_DIR%\agentd\libsys_core.so" "%WINDOWS_RELEASE_DIR%\agentd\" >nul 2>&1
 IF EXIST "%SCRIPT_DIR%\agentd\run.sh" (
     copy /y "%SCRIPT_DIR%\agentd\run.sh" "%WINDOWS_RELEASE_DIR%\agentd\" >nul
 )
 
 :: 复制 Assets
-xcopy /e /i /y "%SCRIPT_DIR%\assets\v1" "%WINDOWS_RELEASE_DIR%\assets\v1" >nul
+xcopy /e /i /y "%SCRIPT_DIR%\assets" "%WINDOWS_RELEASE_DIR%\assets" >nul
 
 :: 复制启动脚本到根目录
 (

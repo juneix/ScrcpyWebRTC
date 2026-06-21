@@ -3,6 +3,60 @@
     <Login />
   </div>
   <div v-else class="app-container" :class="{ 'is-resizing': isResizing }">
+    <!-- 全局授权到期阻断覆盖层 -->
+    <div v-if="deviceStore.isLicenseExpired" class="license-block-overlay">
+      <div class="license-block-card">
+        <div class="license-block-header">
+          <div class="license-alert-icon">⚠️</div>
+          <h2>系统授权已过期</h2>
+          <p class="license-block-subtitle">当前版本已不受支持，请更新或激活</p>
+        </div>
+        
+        <div class="license-block-body">
+          <p class="license-error-tip">{{ deviceStore.licenseErrorMsg }}</p>
+          
+          <div class="license-info-row">
+            <span class="info-label">服务器机器码:</span>
+            <div class="machine-id-container">
+              <code class="machine-id-code">{{ deviceStore.globalMachineID || '正在获取...' }}</code>
+              <button class="copy-code-btn" @click="copyMachineID" :disabled="!deviceStore.globalMachineID">
+                {{ copySuccess ? '已复制' : '复制' }}
+              </button>
+            </div>
+          </div>
+          
+          <div class="license-input-group">
+            <label for="license-input">请输入授权激活码:</label>
+            <textarea 
+              id="license-input" 
+              v-model="activationKey" 
+              placeholder="请粘贴由 generate_license.go 脚本或作者提供的激活码..."
+              rows="4"
+            ></textarea>
+          </div>
+          
+          <div v-if="activationError" class="activation-error-msg">
+            ❌ {{ activationError }}
+          </div>
+          
+          <div class="license-action-buttons">
+            <button class="activate-btn" :disabled="isActivating || !activationKey.trim()" @click="submitActivation">
+              {{ isActivating ? '正在激活...' : '立即激活解锁' }}
+            </button>
+          </div>
+        </div>
+        
+        <div class="license-block-footer">
+          <p>如需获取授权激活证书，请联系作者：</p>
+          <div class="contact-links">
+            <a href="mailto:cloudphone@qq.com" class="footer-email">cloudphone@qq.com</a>
+            <span class="footer-divider">|</span>
+            <a href="javascript:void(0)" @click="showContactModal = true" class="footer-contact-link">获取企业微信二维码</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 1. 全局侧边导航 (仅PC显示) -->
     <nav class="side-nav" :class="{ expanded: isNavExpanded }" v-if="!isMobile">
       <button class="nav-brand" @click="isNavExpanded = !isNavExpanded" :title="isNavExpanded ? '收起侧边栏' : '展开侧边栏'">
@@ -18,7 +72,7 @@
         </span>
       </button>
       <div class="nav-links">
-        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage }">
+        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage }">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
             <line x1="12" y1="18" x2="12.01" y2="18"></line>
@@ -48,6 +102,13 @@
             <path d="M12 16v6"></path>
           </svg>
           <span class="nav-item-text">部署</span>
+        </a>
+        <a href="javascript:void(0)" @click="navigateTo('/terminal')" class="nav-item" :class="{ active: showTerminalPage }">
+          <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          <span class="nav-item-text">终端</span>
         </a>
         <a href="javascript:void(0)" @click="navigateTo('/admin')" class="nav-item" :class="{ active: showUserAdminPage }" v-if="authStore.role === 'admin'">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -100,33 +161,112 @@
           </button>
         </div>
       </div>
+      <!-- 4. 版本号显示 -->
+      <div class="nav-version" :title="systemVersion">
+        {{ isNavExpanded ? '版本 ' + systemVersion : systemVersion.split('-')[0] }}
+      </div>
     </nav>
 
     <!-- 2. 主内容区域 -->
     <main class="main-content" id="main-layout-content">
       <header class="top-bar" v-if="!isMobile">
         <h1 class="page-title">{{ showDeployPage ? '云端自动化部署' : (showFilePage ? '云设备文件中心' : (showMonitorPage ? '云监控实时大盘' : '云虚机矩阵')) }}</h1>
-        <div class="header-user-card">
-          <div class="user-avatar" :title="authStore.username + ' (' + (authStore.role === 'admin' ? '管理员' : '普通用户') + ')'">
-            {{ authStore.username ? authStore.username.substring(0, 1).toUpperCase() : 'U' }}
+        <div class="top-bar-right">
+          <!-- 帮助与支持下拉菜单 -->
+          <div class="header-help-menu" @click.stop>
+            <button class="help-btn" :class="{ active: showHelpMenu }" @click.stop="showHelpMenu = !showHelpMenu" title="帮助与支持">
+              <svg class="help-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </button>
+            <transition name="pop">
+              <div class="help-dropdown" v-if="showHelpMenu">
+                <div class="help-dropdown-header">帮助与支持</div>
+                <div class="help-dropdown-list">
+                  <a href="https://github.com/hqw700/ScrcpyOverWebRTC" target="_blank" class="help-dropdown-item">
+                    <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                    </svg>
+                    <div class="item-text">
+                      <div class="item-title">GitHub 仓库</div>
+                      <div class="item-desc">获取源码、反馈 Issue、Star 支持</div>
+                    </div>
+                  </a>
+                  <a href="https://cloudphone-official.hqw700.workers.dev/docs/" target="_blank" class="help-dropdown-item">
+                    <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                    </svg>
+                    <div class="item-text">
+                      <div class="item-title">官方文档</div>
+                      <div class="item-desc">详细部署指南及高级参数配置</div>
+                    </div>
+                  </a>
+                  <a href="https://space.bilibili.com/525503471" target="_blank" class="help-dropdown-item">
+                    <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                      <path d="M17 2l-3.5 3.5M7 2l3.5 3.5"></path>
+                      <line x1="8" y1="14" x2="8" y2="14.01"></line>
+                      <line x1="16" y1="14" x2="16" y2="14.01"></line>
+                    </svg>
+                    <div class="item-text">
+                      <div class="item-title">B站视频教程</div>
+                      <div class="item-desc">云虚机搭建、直连教程及实机演示</div>
+                    </div>
+                  </a>
+                  <a href="javascript:void(0)" @click="showContactModal = true; showHelpMenu = false" class="help-dropdown-item">
+                    <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="9" cy="7" r="4"></circle>
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <div class="item-text">
+                      <div class="item-title">联系作者</div>
+                      <div class="item-desc">企业微信二维码名片，欢迎技术交流与反馈</div>
+                    </div>
+                  </a>
+                </div>
+              </div>
+            </transition>
           </div>
-          <span class="user-name" :title="authStore.username">{{ authStore.username }}</span>
-          <span class="user-role-badge" :class="authStore.role">
-            {{ authStore.role === 'admin' ? '管理员' : '普通用户' }}
-          </span>
+          <div class="header-user-card">
+            <div class="user-avatar" :title="authStore.username + ' (' + (authStore.role === 'admin' ? '管理员' : '普通用户') + ')'">
+              {{ authStore.username ? authStore.username.substring(0, 1).toUpperCase() : 'U' }}
+            </div>
+            <span class="user-name" :title="authStore.username">{{ authStore.username }}</span>
+            <span class="user-role-badge" :class="authStore.role">
+              {{ authStore.role === 'admin' ? '管理员' : '普通用户' }}
+            </span>
+          </div>
         </div>
       </header>
       
       <section class="viewport">
         <transition name="fade" mode="out-in">
-          <DeviceList v-if="!showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage" />
+          <DeviceList v-if="!showDeployPage && !showFilePage && !showMonitorPage && !showUserAdminPage" />
           <UserAdminPage v-else-if="showUserAdminPage" />
           <DeployPage v-else-if="showDeployPage" />
           <FileManagerPage v-else-if="showFilePage" />
           <Dashboard v-else-if="showMonitorPage" />
-          <TerminalPage v-else />
         </transition>
       </section>
+
+      <!-- 全局下半屏控制台 (悬浮并可上下拉伸高度) -->
+      <div 
+        class="global-console-container" 
+        :class="{ 'nav-expanded': isNavExpanded && !isMobile }"
+        v-show="deviceStore.showGlobalConsole"
+        :style="{ height: deviceStore.globalConsoleHeight + 'px' }"
+      >
+        <DeviceConsole 
+          v-if="deviceStore.showGlobalConsole && deviceStore.consoleDeviceId"
+          :deviceId="deviceStore.consoleDeviceId" 
+          :height="deviceStore.globalConsoleHeight + 'px'" 
+        />
+      </div>
     </main>
 
     <!-- 3. 右侧控制面板 (支持悬浮和拉伸) -->
@@ -196,8 +336,8 @@
     </aside>
 
     <!-- 4. 移动端底部导航栏 (仅在主视图显示活跃虚机视频时才隐藏，在文件、终端或列表页均保持可见) -->
-    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || showMonitorPage || !deviceStore.activeDeviceId)">
-      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage }">
+    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || showMonitorPage || showUserAdminPage || !deviceStore.activeDeviceId)">
+      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage }">
         <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
           <line x1="12" y1="18" x2="12.01" y2="18"></line>
@@ -225,7 +365,82 @@
         </svg>
         <span class="mobile-nav-text">终端</span>
       </button>
+      <button @click="navigateTo('/admin')" class="mobile-nav-item" :class="{ active: showUserAdminPage }" v-if="authStore.role === 'admin'">
+        <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span class="mobile-nav-text">管理</span>
+      </button>
     </nav>
+    
+    <!-- 联系作者弹窗 (企业微信名片) -->
+    <transition name="fade">
+      <div v-if="showContactModal" class="contact-modal-overlay" @click="showContactModal = false">
+        <div class="contact-modal-card" @click.stop>
+          <button class="contact-close-btn" @click="showContactModal = false">✕</button>
+          <div class="contact-card-title">联系作者</div>
+          <a class="contact-card-email" href="mailto:cloudphone@qq.com">cloudphone@qq.com</a>
+          <div class="contact-card-body">
+            <img src="/assets/wework.jpg" alt="企业微信名片" class="contact-qrcode-img" @click="handleContactImgClick" />
+            <p class="contact-card-tip">扫码添加企业微信，进行技术交流与项目反馈</p>
+          </div>
+          <div class="contact-card-divider" v-if="showEggPanel"></div>
+          <div class="contact-license-section" v-if="showEggPanel">
+            <button class="toggle-license-btn" @click="showLicensePanel = !showLicensePanel">
+              {{ showLicensePanel ? '收起授权管理' : '系统授权管理 (查看机器码/激活)' }}
+            </button>
+            <div v-if="showLicensePanel" class="license-panel-body">
+              <div class="license-status-display">
+                <div class="status-item">
+                  <span class="status-label">激活状态:</span>
+                  <span :class="['status-value', deviceStore.licenseStatus === 'valid' ? 'status-valid' : 'status-expired']">
+                    {{ deviceStore.licenseStatus === 'valid' ? '正常激活' : '授权过期' }}
+                  </span>
+                </div>
+                <div class="status-item" v-if="deviceStore.licenseStatus === 'valid'">
+                  <span class="status-label">剩余有效期:</span>
+                  <span class="status-value highlight">{{ deviceStore.licenseDaysRemaining }} 天</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">最大虚机限制:</span>
+                  <span class="status-value highlight">{{ deviceStore.licenseMaxDevices }} 台</span>
+                </div>
+                <div class="status-item" v-if="deviceStore.licenseExpiresAt">
+                  <span class="status-label">过期日期:</span>
+                  <span class="status-value">{{ deviceStore.licenseExpiresAt }}</span>
+                </div>
+              </div>
+              <div class="license-info-row small">
+                <span class="info-label">机器码:</span>
+                <div class="machine-id-container small">
+                  <code>{{ deviceStore.globalMachineID || '正在获取...' }}</code>
+                  <button class="small-copy-btn" @click="copyMachineID" :disabled="!deviceStore.globalMachineID">
+                    {{ copySuccess ? '已复制' : '复制' }}
+                  </button>
+                </div>
+              </div>
+              <div class="license-input-group small">
+                <input 
+                  type="text" 
+                  v-model="activationKey" 
+                  placeholder="请输入授权激活码..." 
+                  class="license-short-input"
+                />
+                <button class="short-activate-btn" :disabled="isActivating || !activationKey.trim()" @click="submitActivation">
+                  {{ isActivating ? '激活' : '激活' }}
+                </button>
+              </div>
+              <div v-if="activationError" class="activation-error-msg small">
+                {{ activationError }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -238,7 +453,7 @@ import DeviceClient from '@/views/DeviceClient.vue'
 import DeviceList from '@/views/DeviceList.vue'
 import DeployPage from '@/views/DeployPage.vue'
 import FileManagerPage from '@/views/FileManagerPage.vue'
-import TerminalPage from '@/views/TerminalPage.vue'
+import DeviceConsole from '@/components/DeviceConsole.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import Login from '@/views/Login.vue'
 import UserAdminPage from '@/views/UserAdminPage.vue'
@@ -251,6 +466,18 @@ function handleLogout() {
   authStore.logout()
 }
 
+const systemVersion = ref('v0.1.9')
+const fetchVersion = () => {
+  fetch('/api/version')
+    .then(res => res.json())
+    .then(data => {
+      if (data && data.version) {
+        systemVersion.value = `${data.version} (${data.git_commit || ''})`
+      }
+    })
+    .catch(err => console.warn('Failed to fetch system version:', err))
+}
+
 const isMobile = ref(window.innerWidth <= 1024)
 const isFloating = ref(false)
 const isResizing = ref(false)
@@ -261,6 +488,65 @@ const showTerminalPage = ref(false)
 const showMonitorPage = ref(false)
 const showUserAdminPage = ref(false)
 const isNavExpanded = ref(false)
+const showHelpMenu = ref(false)
+const showContactModal = ref(false)
+
+const activationKey = ref('')
+const isActivating = ref(false)
+const activationError = ref(null)
+const copySuccess = ref(false)
+const showLicensePanel = ref(localStorage.getItem('license_egg_unlocked') === 'true')
+const contactImgClickCount = ref(0)
+const showEggPanel = ref(localStorage.getItem('license_egg_unlocked') === 'true')
+
+function handleContactImgClick() {
+  if (showEggPanel.value) return
+  contactImgClickCount.value++
+  if (contactImgClickCount.value >= 5) {
+    showEggPanel.value = true
+    showLicensePanel.value = true
+    localStorage.setItem('license_egg_unlocked', 'true')
+  }
+}
+
+watch(showContactModal, (val) => {
+  if (val) {
+    deviceStore.fetchLicenseStatus()
+  }
+})
+
+function copyMachineID() {
+  if (!deviceStore.globalMachineID) return
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(deviceStore.globalMachineID)
+      .then(() => {
+        copySuccess.value = true
+        setTimeout(() => { copySuccess.value = false }, 2000)
+      })
+      .catch(err => {
+        console.error('Failed to copy machine ID:', err)
+      })
+  }
+}
+
+async function submitActivation() {
+  if (!activationKey.value.trim()) return
+  isActivating.value = true
+  activationError.value = null
+  
+  const res = await deviceStore.activateLicense(activationKey.value.trim())
+  isActivating.value = false
+  if (res.success) {
+    activationKey.value = ''
+    showLicensePanel.value = false
+    alert('系统激活成功！授权已实时重载并应用。')
+  } else {
+    activationError.value = res.error
+  }
+}
+const closeHelpMenu = () => {
+  showHelpMenu.value = false
+}
 
 const floatPos = ref({ x: 100, y: 100 })
 const floatSize = ref({ w: 600, h: 800 })
@@ -374,6 +660,7 @@ const initApp = () => {
   if (authStore.isLoggedIn) {
     deviceStore.fetchDevices()
     deviceStore.initSignaling()
+    deviceStore.fetchLicenseStatus()
     
     // 方案三：异步拉取部署时由后端指定的环境变量默认配置
     fetch('/api/default_settings')
@@ -398,7 +685,9 @@ const initApp = () => {
 
 onMounted(() => {
   initApp()
+  fetchVersion()
   window.addEventListener('resize', updateMedia)
+  window.addEventListener('click', closeHelpMenu)
   updateMedia() // 确保组件挂载后瞬间重新执行检测，避免初次视口异常
 })
 
@@ -407,7 +696,10 @@ watch(() => authStore.isLoggedIn, (newVal) => {
     initApp()
   }
 })
-onUnmounted(() => window.removeEventListener('resize', updateMedia))
+onUnmounted(() => {
+  window.removeEventListener('resize', updateMedia)
+  window.removeEventListener('click', closeHelpMenu)
+})
 
 watch(() => deviceStore.activeDeviceId, (newId) => {
   if (!newId) {
@@ -433,11 +725,8 @@ function navigateTo(path) {
     showMonitorPage.value = false
     showUserAdminPage.value = false
   } else if (path === '/terminal') {
-    showDeployPage.value = false
-    showFilePage.value = false
-    showTerminalPage.value = true
-    showMonitorPage.value = false
-    showUserAdminPage.value = false
+    // 点击终端按钮，不进行页面切换，直接切换全局底部终端抽屉的显隐状态
+    deviceStore.toggleGlobalConsole()
   } else if (path === '/monitor') {
     showDeployPage.value = false
     showFilePage.value = false
@@ -478,6 +767,26 @@ body { margin: 0; background: var(--bg-primary); color: #c9d1d9; font-family: -a
   flex-shrink: 0; 
   box-sizing: border-box;
   transition: width 0.22s ease;
+}
+
+.nav-version {
+  margin-top: auto;
+  font-size: 11px;
+  color: #8b949e;
+  opacity: 0.45;
+  text-align: center;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 8px 4px 0 4px;
+  box-sizing: border-box;
+  transition: opacity 0.2s;
+  cursor: default;
+}
+
+.nav-version:hover {
+  opacity: 0.9;
 }
 
 .side-nav.expanded {
@@ -659,6 +968,245 @@ body { margin: 0; background: var(--bg-primary); color: #c9d1d9; font-family: -a
 
 .nav-item.active { opacity: 1; color: var(--accent); background: rgba(88,166,255,0.1); }
 .nav-item.logout-nav-item:hover { opacity: 1; color: #f85149; background: rgba(248,81,73,0.1); }
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-help-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.help-btn {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.help-btn:hover, .help-btn.active {
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.help-icon-svg {
+  width: 20px;
+  height: 20px;
+}
+
+.help-dropdown {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 280px;
+  background: #161b22;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  overflow: hidden;
+  padding: 4px 0;
+}
+
+.help-dropdown-header {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-dropdown-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.help-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  text-decoration: none;
+  color: #c9d1d9;
+  transition: background 0.2s ease;
+}
+
+.help-dropdown-item:hover {
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.help-dropdown-item .dropdown-icon {
+  width: 18px;
+  height: 18px;
+  color: #8b949e;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.help-dropdown-item:hover .dropdown-icon {
+  color: var(--accent);
+}
+
+.help-dropdown-item .item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.help-dropdown-item .item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.help-dropdown-item .item-desc {
+  font-size: 11px;
+  color: #8b949e;
+  line-height: 1.4;
+}
+
+.pop-enter-active, .pop-leave-active {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pop-enter-from, .pop-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+}
+
+/* 联系作者弹窗样式 */
+.contact-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.contact-modal-card {
+  background: #161b22;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(440px, 90vw);
+  max-height: 90vh;
+  padding: 24px;
+  position: relative;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.contact-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 16px;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.contact-close-btn:hover {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.contact-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.contact-card-body {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-right: 4px;
+}
+
+/* 自定义滚动条使体验更高级 */
+.contact-card-body::-webkit-scrollbar {
+  width: 4px;
+}
+.contact-card-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+.contact-card-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.contact-qrcode-img {
+  width: min(360px, 80vw);
+  height: auto;
+  border-radius: 6px;
+  border: 3px solid #fff;
+  margin: 0 auto 16px;
+  display: block;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+
+.contact-card-tip {
+  font-size: 12px;
+  color: #8b949e;
+  line-height: 1.5;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.contact-card-email {
+  display: inline-flex;
+  align-self: center;
+  margin: -8px 0 16px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.contact-card-email:hover {
+  text-decoration: underline;
+}
+
+/* fade 动画效果 */
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
 
 .header-user-card {
   display: flex;
@@ -984,4 +1532,367 @@ body { margin: 0; background: var(--bg-primary); color: #c9d1d9; font-family: -a
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.global-console-container {
+  position: fixed;
+  bottom: 0;
+  left: var(--nav-width, 64px);
+  right: 0;
+  z-index: 1000;
+  transition: left 0.22s ease;
+  box-sizing: border-box;
+}
+
+.global-console-container.nav-expanded {
+  left: 180px;
+}
+
+@media (max-width: 1024px) {
+  .global-console-container {
+    left: 0 !important;
+  }
+}
+
+/* 全局授权过期拦截覆盖层 */
+.license-block-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 12, 16, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.license-block-card {
+  width: 500px;
+  max-width: 90%;
+  background: #161b22;
+  border: 1px solid #f85149;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.license-block-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.license-alert-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.license-block-header h2 {
+  margin: 0 0 8px 0;
+  color: #f85149;
+  font-size: 22px;
+}
+
+.license-block-subtitle {
+  margin: 0;
+  color: #8b949e;
+  font-size: 14px;
+}
+
+.license-block-body {
+  margin-bottom: 24px;
+}
+
+.license-error-tip {
+  background: rgba(248, 81, 73, 0.1);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.2);
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.license-info-row {
+  margin-bottom: 16px;
+}
+
+.license-info-row.small {
+  margin-bottom: 10px;
+}
+
+.info-label {
+  display: block;
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 6px;
+}
+
+.machine-id-container {
+  display: flex;
+  gap: 8px;
+}
+
+.machine-id-container.small code {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.machine-id-container code {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: 14px;
+  color: #c9d1d9;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+}
+
+.copy-code-btn, .machine-id-container.small button {
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.copy-code-btn:hover, .machine-id-container.small button:hover {
+  background: #30363d;
+  border-color: #8b949e;
+}
+
+.license-input-group {
+  margin-bottom: 20px;
+}
+
+.license-input-group.small {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.license-input-group label {
+  display: block;
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 6px;
+}
+
+.license-input-group textarea {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 10px;
+  box-sizing: border-box;
+  resize: none;
+  outline: none;
+}
+
+.license-input-group textarea:focus, .license-short-input:focus {
+  border-color: var(--accent);
+}
+
+.license-short-input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.activate-btn {
+  width: 100%;
+  background: #238636;
+  border: 1px solid #2ea44f;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.activate-btn:hover:not(:disabled) {
+  background: #2ea44f;
+}
+
+.activate-btn:disabled, .short-activate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.short-activate-btn {
+  background: #238636;
+  border: 1px solid #2ea44f;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.short-activate-btn:hover:not(:disabled) {
+  background: #2ea44f;
+}
+
+.activation-error-msg {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.05);
+  border: 1px solid rgba(248, 81, 73, 0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.activation-error-msg.small {
+  color: #f85149;
+  background: none;
+  border: none;
+  margin-top: 6px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 11px;
+  text-align: left;
+}
+
+.license-block-footer {
+  border-top: 1px solid #30363d;
+  padding-top: 16px;
+  font-size: 12px;
+  color: #8b949e;
+  text-align: center;
+}
+
+.license-block-footer p {
+  margin: 0 0 8px 0;
+}
+
+.contact-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-email {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.footer-email:hover, .footer-contact-link:hover {
+  text-decoration: underline;
+}
+
+.footer-divider {
+  color: #30363d;
+}
+
+.footer-contact-link {
+  color: #8b949e;
+  text-decoration: none;
+}
+
+/* 联系作者弹窗中的授权扩展板块 */
+.contact-card-divider {
+  height: 1px;
+  background: #30363d;
+  margin: 20px 0 16px;
+  width: 100%;
+}
+
+.contact-license-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.toggle-license-btn {
+  background: none;
+  border: none;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: color 0.2s;
+}
+
+.toggle-license-btn:hover {
+  color: var(--accent);
+}
+
+.license-panel-body {
+  width: 100%;
+  margin-top: 12px;
+  text-align: left;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.license-status-display {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.status-label {
+  color: #8b949e;
+}
+
+.status-value {
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.status-value.status-valid {
+  color: #3fb950;
+}
+
+.status-value.status-expired {
+  color: #f85149;
+}
+
+.status-value.highlight {
+  color: #58a6ff;
+}
 </style>

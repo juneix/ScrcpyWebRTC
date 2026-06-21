@@ -45,12 +45,6 @@
             </svg>
             <span class="btn-label">全局设置</span>
           </button>
-          <button class="deploy-btn primary hide-on-mobile" @click="goToDeploy" aria-label="部署新设备">
-            <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-              <path d="M12 5v14M5 12h14"></path>
-            </svg>
-            <span class="btn-label">部署新设备</span>
-          </button>
         </div>
       </div>
     </header>
@@ -137,7 +131,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDeviceStore } from '@/stores/devices'
 import { useTagStore } from '@/stores/tags'
@@ -150,8 +144,13 @@ import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceS
 const router = useRouter()
 const deviceStore = useDeviceStore()
 const tagStore = useTagStore()
-const cardSize = ref(280)
+const savedCardSize = localStorage.getItem('cloudphone_card_size')
+const cardSize = ref(savedCardSize ? parseInt(savedCardSize, 10) : 280)
 const searchQuery = ref('')
+
+watch(cardSize, (newVal) => {
+  localStorage.setItem('cloudphone_card_size', newVal.toString())
+})
 
 let refreshInterval = null
 const showSettingsModal = ref(false)
