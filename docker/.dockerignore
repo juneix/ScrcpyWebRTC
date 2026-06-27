@@ -1,5 +1,0 @@
-# 忽略除了构建所需文件外的所有部署配置文件
-*
-!webrtc-signaling
-!assets
-!certs

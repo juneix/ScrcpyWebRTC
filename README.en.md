@@ -128,6 +128,10 @@ The frontend source code is fully open-source and located in the `web-app` direc
 
 > 💡 For detailed directory structure, development parameters, and Docker mount debugging instructions, please check the document: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+> [!IMPORTANT]
+> **Release Package Notice**:
+> This open-source repository only hosts the frontend `web-app` source code. If you need the pre-compiled Go/C++ backend signaling and media binaries (`bin/` directory), physical Android Agent deployment packages, one-click startup scripts, and native server-free deployment versions, please download the fully packaged releases directly from the [Releases](https://github.com/hqw700/ScrcpyOverWebRTC/releases) page.
+
 ## License
 
 **MIT License** - Frontend `web-app` directory source code is open source.

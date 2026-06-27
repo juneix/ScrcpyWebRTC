@@ -128,6 +128,10 @@ docker logs cp-aio
 
 > 💡 详细的前端目录结构、开发参数调优和 Docker 挂载联调说明，请直接查阅文档：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
+> [!IMPORTANT]
+> **发布介质说明**：
+> 本开源仓库仅托管前端 `web-app` 的全部源码。如果您需要以及免 Docker 的原生物理服务器部署版本和免服务器部署版本（全部运行在Android手机内），请直接前往 [releases](https://github.com/hqw700/ScrcpyOverWebRTC/releases) 页面下载官方打包好的完整发布包。
+
 ## License
 
 **MIT License** - 前端 `web-app` 目录源代码开源。
