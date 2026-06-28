@@ -2,6 +2,8 @@
 
 [中文](README.md) | English
 
+📖 **Official Technical Documentation & Deployment Guide**: 👉 [https://cloudphone-official.hqw700.workers.dev/docs/](https://cloudphone-official.hqw700.workers.dev/docs/)
+
 A high-performance, low-latency cloud phone/cloud desktop solution based on WebRTC and Scrcpy. No client required; you can connect directly through a web browser.
 It adopts a **Fat Agent (Direct Connection)** architecture, combined with **Hardware-level PTS Passthrough** technology, to achieve a silky-smooth experience comparable to native Scrcpy.
 
@@ -26,6 +28,12 @@ It adopts a **Fat Agent (Direct Connection)** architecture, combined with **Hard
 ```bash
 docker pull buutuu/scrcpy-over-webrtc:latest
 ```
+
+### 🔑 Default Connection Address & Credentials
+Once the services are successfully started, you can access the admin dashboard via browser on any device within the same network:
+* **Access URL**: `http://<YOUR_HOST_IP>:8443` (or `https://...` if SSL certificates are configured)
+* **Default Username**: `admin`
+* **Default Password**: `admin123`
 
 ### 2.1 Host Network Mode (Recommended)
 If your Linux host has a public IP or is in a pure intranet environment with no port conflicts, **Host mode is the preferred option**.

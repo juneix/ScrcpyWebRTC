@@ -2,6 +2,8 @@
 
 中文 | [English](README.en.md)
 
+📖 **官方技术文档与保姆级部署指南**：👉 [https://cloudphone-official.hqw700.workers.dev/docs/](https://cloudphone-official.hqw700.workers.dev/docs/)
+
 基于 WebRTC 和 Scrcpy 的高性能、低延迟云手机解决方案，无需客户端，可以通过网页直接连接。
 采用 **Fat Agent (直连模式)** 架构，结合 **硬件级 PTS 透传** 技术，实现媲美原生 Scrcpy 的丝滑体验。
 
@@ -25,6 +27,12 @@
 ```bash
   docker pull buutuu/scrcpy-over-webrtc:latest
 ```
+
+### 🔑 默认连接地址与账户凭证
+服务拉起成功后，在同局域网的电脑/手机浏览器中即可打开管理仪表盘大盘：
+* **访问地址**：`http://<您的宿主机IP>:8443` 或配置了 SSL 证书后的 `https://<您的宿主机IP>:8443`
+* **默认管理员账号**：`admin`
+* **默认管理员密码**：`admin123`
 
 ### 2.1 Host 网络模式 (推荐)
 如果您的 Linux 宿主机有独立的公网 IP 或是纯内网环境，且没有端口占用冲突，**首选 Host 模式**。
@@ -104,7 +112,7 @@ docker logs cp-aio
 
 ---
 
-## 4. 前端二次开发指引 ( सेकेंडरी Development )
+## 4. 前端二次开发指引 ( Development )
 
 前端源码位于 `web-app` 目录下，完全开源。我们提供 **“本地前端 + 官方 Docker AIO 容器后端”** 的极速混合开发模式，无需在本地配置繁琐的 Go 编译环境即可实时热更新开发。
 
