@@ -72,7 +72,7 @@
         </span>
       </button>
       <div class="nav-links">
-        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage }">
+        <a href="javascript:void(0)" @click="navigateTo('/')" class="nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage && !showBatchPage }">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
             <line x1="12" y1="18" x2="12.01" y2="18"></line>
@@ -86,6 +86,15 @@
             <line x1="6" y1="20" x2="6" y2="14"></line>
           </svg>
           <span class="nav-item-text">大盘</span>
+        </a>
+        <a href="javascript:void(0)" @click="navigateTo('/batch')" class="nav-item" :class="{ active: showBatchPage }">
+          <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+            <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+            <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+          </svg>
+          <span class="nav-item-text">群控</span>
         </a>
         <a href="javascript:void(0)" @click="navigateTo('/files')" class="nav-item" :class="{ active: showFilePage }">
           <svg class="nav-item-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -139,8 +148,8 @@
         <div class="nav-tag-list">
           <button
             class="nav-tag-item"
-            :class="{ active: tagStore.selectedTagId === '' }"
-            @click="tagStore.setSelectedTag('')"
+            :class="{ active: tagStore.selectedTagIds.length === 0 }"
+            @click="tagStore.clearSelectedTags()"
             title="全部设备"
           >
             <span class="nav-tag-dot all"></span>
@@ -151,7 +160,7 @@
             v-for="tag in tagStore.tags"
             :key="tag.id"
             class="nav-tag-item"
-            :class="{ active: tagStore.selectedTagId === tag.id }"
+            :class="{ active: tagStore.selectedTagIds.includes(tag.id) }"
             :title="tag.name"
             @click="toggleTag(tag.id)"
           >
@@ -246,11 +255,12 @@
       
       <section class="viewport">
         <transition name="fade" mode="out-in">
-          <DeviceList v-if="!showDeployPage && !showFilePage && !showMonitorPage && !showUserAdminPage" />
+          <DeviceList v-if="!showDeployPage && !showFilePage && !showMonitorPage && !showUserAdminPage && !showBatchPage" />
           <UserAdminPage v-else-if="showUserAdminPage" />
           <DeployPage v-else-if="showDeployPage" />
           <FileManagerPage v-else-if="showFilePage" />
           <Dashboard v-else-if="showMonitorPage" />
+          <BatchControlPage v-else-if="showBatchPage" />
         </transition>
       </section>
 
@@ -262,7 +272,8 @@
         :style="{ height: deviceStore.globalConsoleHeight + 'px' }"
       >
         <DeviceConsole 
-          v-if="deviceStore.showGlobalConsole && deviceStore.consoleDeviceId"
+          v-if="deviceStore.consoleDeviceId"
+          :key="deviceStore.consoleDeviceId"
           :deviceId="deviceStore.consoleDeviceId" 
           :height="deviceStore.globalConsoleHeight + 'px'" 
         />
@@ -336,8 +347,8 @@
     </aside>
 
     <!-- 4. 移动端底部导航栏 (仅在主视图显示活跃虚机视频时才隐藏，在文件、终端或列表页均保持可见) -->
-    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || showMonitorPage || showUserAdminPage || !deviceStore.activeDeviceId)">
-      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage }">
+    <nav class="mobile-bottom-nav" v-if="isMobile && (showFilePage || showTerminalPage || showDeployPage || showMonitorPage || showUserAdminPage || showBatchPage || !deviceStore.activeDeviceId)">
+      <button @click="navigateTo('/')" class="mobile-nav-item" :class="{ active: !showDeployPage && !showFilePage && !showTerminalPage && !showMonitorPage && !showUserAdminPage && !showBatchPage }">
         <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
           <line x1="12" y1="18" x2="12.01" y2="18"></line>
@@ -351,6 +362,15 @@
           <line x1="6" y1="20" x2="6" y2="14"></line>
         </svg>
         <span class="mobile-nav-text">大盘</span>
+      </button>
+      <button @click="navigateTo('/batch')" class="mobile-nav-item" :class="{ active: showBatchPage }">
+        <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+          <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+          <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+          <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+        </svg>
+        <span class="mobile-nav-text">群控</span>
       </button>
       <button @click="navigateTo('/files')" class="mobile-nav-item" :class="{ active: showFilePage }">
         <svg class="mobile-nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -457,6 +477,7 @@ import DeviceConsole from '@/components/DeviceConsole.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import Login from '@/views/Login.vue'
 import UserAdminPage from '@/views/UserAdminPage.vue'
+import BatchControlPage from '@/views/BatchControlPage.vue'
 
 const deviceStore = useDeviceStore()
 const tagStore = useTagStore()
@@ -487,6 +508,7 @@ const showFilePage = ref(false)
 const showTerminalPage = ref(false)
 const showMonitorPage = ref(false)
 const showUserAdminPage = ref(false)
+const showBatchPage = ref(false)
 const isNavExpanded = ref(false)
 const showHelpMenu = ref(false)
 const showContactModal = ref(false)
@@ -649,7 +671,7 @@ function openTagManager() {
 }
 
 function toggleTag(tagId) {
-  tagStore.setSelectedTag(tagStore.selectedTagId === tagId ? '' : tagId)
+  tagStore.toggleSelectedTag(tagId)
 }
 
 function getTagDeviceCount(tagId) {
@@ -658,6 +680,8 @@ function getTagDeviceCount(tagId) {
 
 const initApp = () => {
   if (authStore.isLoggedIn) {
+    authStore.fetchMe()
+    tagStore.load()
     deviceStore.fetchDevices()
     deviceStore.initSignaling()
     deviceStore.fetchLicenseStatus()
@@ -726,12 +750,14 @@ function navigateTo(path) {
     showFilePage.value = false
     showTerminalPage.value = false
     showMonitorPage.value = false
+    showBatchPage.value = false
     showUserAdminPage.value = false
   } else if (path === '/files') {
     showDeployPage.value = false
     showFilePage.value = true
     showTerminalPage.value = false
     showMonitorPage.value = false
+    showBatchPage.value = false
     showUserAdminPage.value = false
   } else if (path === '/terminal') {
     // 点击终端按钮，不进行页面切换，直接切换全局底部终端抽屉的显隐状态
@@ -741,18 +767,28 @@ function navigateTo(path) {
     showFilePage.value = false
     showTerminalPage.value = false
     showMonitorPage.value = true
+    showBatchPage.value = false
+    showUserAdminPage.value = false
+  } else if (path === '/batch') {
+    showDeployPage.value = false
+    showFilePage.value = false
+    showTerminalPage.value = false
+    showMonitorPage.value = false
+    showBatchPage.value = true
     showUserAdminPage.value = false
   } else if (path === '/admin') {
     showDeployPage.value = false
     showFilePage.value = false
     showTerminalPage.value = false
     showMonitorPage.value = false
+    showBatchPage.value = false
     showUserAdminPage.value = true
   } else {
     showDeployPage.value = false
     showFilePage.value = false
     showTerminalPage.value = false
     showMonitorPage.value = false
+    showBatchPage.value = false
     showUserAdminPage.value = false
   }
 }

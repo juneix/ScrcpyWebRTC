@@ -1,9 +1,9 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal">
+    <div class="modal" :class="{ 'modal-compact': mode === 'assign' }">
       <header class="modal-header">
         <div>
-          <h2>标签管理</h2>
+          <h2>{{ mode === 'assign' ? '批量设置标签' : '标签管理' }}</h2>
         </div>
         <button class="close-btn" @click="$emit('close')" title="关闭">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -12,8 +12,8 @@
         </button>
       </header>
 
-      <div class="modal-body">
-        <section class="panel tags-panel">
+      <div class="modal-body" :class="{ 'assign-mode': mode === 'assign' }">
+        <section v-if="mode === 'full'" class="panel tags-panel">
           <div class="panel-header">
             <h3>标签</h3>
             <span>{{ tagStore.tags.length }} 个</span>
@@ -62,8 +62,8 @@
           </div>
         </section>
 
-        <section class="panel devices-panel">
-          <div class="panel-header">
+        <section class="panel devices-panel" :class="{ 'assign-panel-only': mode === 'assign' }">
+          <div class="panel-header" v-if="mode === 'full'">
             <h3>设备分配</h3>
             <span>已选 {{ selectedDeviceIds.length }} 台</span>
           </div>
@@ -72,8 +72,8 @@
             暂无在线虚机
           </div>
 
-          <div v-else class="assignment-layout">
-            <div class="device-list">
+          <div v-else class="assignment-layout" :class="{ 'assign-layout-only': mode === 'assign' }">
+            <div v-if="mode === 'full'" class="device-list">
               <!-- 全选控制 -->
               <div class="device-list-header">
                 <label class="select-all-label">
@@ -112,18 +112,28 @@
               <div v-else-if="tagStore.tags.length === 0" class="empty-state">
                 先创建标签
               </div>
-              <div v-else class="checkbox-list">
-                <label v-for="tag in tagStore.tags" :key="tag.id" class="tag-checkbox">
-                  <input
-                    type="checkbox"
-                    :checked="isTagFullySelected(tag.id)"
-                    :indeterminate="isTagPartiallySelected(tag.id)"
-                    @change="handleTagCheckboxChange(tag.id, $event.target.checked)"
-                  >
-                  <span class="tag-chip" :style="tagStyle(tag)">
-                    {{ tag.name }}
-                  </span>
-                </label>
+              <div v-else class="checkbox-list-container">
+                <div class="checkbox-list">
+                  <label v-for="tag in tagStore.tags" :key="tag.id" class="tag-checkbox">
+                    <input
+                      type="checkbox"
+                      :checked="isChecked(tag.id)"
+                      :indeterminate="isIndeterminate(tag.id)"
+                      @change="handleTagCheckboxChange(tag.id, $event.target.checked)"
+                    >
+                    <span class="tag-chip" :style="tagStyle(tag)">
+                      {{ tag.name }}
+                    </span>
+                  </label>
+                </div>
+
+                <div class="assignment-actions" v-if="hasChanges">
+                  <button class="primary-btn apply-btn" @click="applyAssignments">保存分配</button>
+                  <button class="secondary-btn cancel-btn" @click="resetChanges">撤销修改</button>
+                </div>
+                <div class="assignment-actions-placeholder" v-else-if="mode === 'assign'">
+                  <button class="secondary-btn cancel-btn-only" @click="$emit('close')">关闭</button>
+                </div>
               </div>
             </div>
           </div>
@@ -145,10 +155,14 @@ const props = defineProps({
   initialDeviceId: {
     type: String,
     default: ''
+  },
+  mode: {
+    type: String,
+    default: 'full' // 'full' 或 'assign'
   }
 })
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
 
 const tagStore = useTagStore()
 const selectedDeviceIds = ref([])
@@ -156,9 +170,19 @@ const newTagName = ref('')
 const newTagColor = ref(DEFAULT_TAG_COLORS[0])
 const tagError = ref('')
 
+const tempSelection = ref({})
+
+const hasChanges = computed(() => {
+  return Object.keys(tempSelection.value).length > 0
+})
+
 watch(
   () => [props.initialDeviceId, props.devices],
   () => {
+    if (props.mode === 'assign') {
+      selectedDeviceIds.value = props.devices.map(d => d.id)
+      return
+    }
     if (props.initialDeviceId && props.devices.some(device => device.id === props.initialDeviceId)) {
       selectedDeviceIds.value = [props.initialDeviceId]
       return
@@ -171,6 +195,10 @@ watch(
   },
   { immediate: true }
 )
+
+watch(selectedDeviceIds, () => {
+  tempSelection.value = {}
+}, { deep: true })
 
 const isAllDevicesSelected = computed(() => {
   return props.devices.length > 0 && selectedDeviceIds.value.length === props.devices.length
@@ -203,16 +231,51 @@ function isTagPartiallySelected(tagId) {
   return count > 0 && count < selectedDeviceIds.value.length
 }
 
+function isChecked(tagId) {
+  if (tempSelection.value[tagId] !== undefined) {
+    return tempSelection.value[tagId]
+  }
+  return isTagFullySelected(tagId)
+}
+
+function isIndeterminate(tagId) {
+  if (tempSelection.value[tagId] !== undefined) {
+    return false
+  }
+  return isTagPartiallySelected(tagId)
+}
+
 function handleTagCheckboxChange(tagId, checked) {
+  tempSelection.value[tagId] = checked
+}
+
+function resetChanges() {
+  tempSelection.value = {}
+}
+
+async function applyAssignments() {
   selectedDeviceIds.value.forEach(deviceId => {
     const currentTags = tagStore.getTagIdsForDevice(deviceId)
-    const hasTag = currentTags.includes(tagId)
-    if (checked && !hasTag) {
-      tagStore.setDeviceTags(deviceId, [...currentTags, tagId])
-    } else if (!checked && hasTag) {
-      tagStore.setDeviceTags(deviceId, currentTags.filter(id => id !== tagId))
+    let nextTags = [...currentTags]
+    
+    for (const [tagId, checked] of Object.entries(tempSelection.value)) {
+      if (checked) {
+        if (!nextTags.includes(tagId)) {
+          nextTags.push(tagId)
+        }
+      } else {
+        nextTags = nextTags.filter(id => id !== tagId)
+      }
     }
+    tagStore.setDeviceTagsInMemory(deviceId, nextTags)
   })
+  
+  await tagStore.saveAndSync()
+  tempSelection.value = {}
+  
+  if (props.mode === 'assign') {
+    emit('close')
+  }
 }
 
 function tagStyle(tag) {
@@ -223,7 +286,7 @@ function tagStyle(tag) {
   }
 }
 
-function addTag() {
+async function addTag() {
   const name = newTagName.value.trim()
   if (!name) {
     tagError.value = '请输入标签名称'
@@ -234,7 +297,7 @@ function addTag() {
     return
   }
 
-  const created = tagStore.createTag(name, newTagColor.value)
+  const created = await tagStore.createTag(name, newTagColor.value)
   if (!created) {
     tagError.value = '标签创建失败'
     return
@@ -244,26 +307,27 @@ function addTag() {
   newTagName.value = ''
 }
 
-function renameTag(tag, value) {
+async function renameTag(tag, value) {
   const name = value.trim()
   if (!name) {
     tagError.value = '标签名称不能为空'
     return
   }
-  if (!tagStore.updateTag(tag.id, { name, color: tag.color })) {
+  const success = await tagStore.updateTag(tag.id, { name, color: tag.color })
+  if (!success) {
     tagError.value = '标签名称已存在'
     return
   }
   tagError.value = ''
 }
 
-function updateColor(tag, color) {
-  tagStore.updateTag(tag.id, { name: tag.name, color })
+async function updateColor(tag, color) {
+  await tagStore.updateTag(tag.id, { name: tag.name, color })
 }
 
-function deleteTag(tag) {
+async function deleteTag(tag) {
   if (confirm(`删除标签 "${tag.name}"？该标签会从所有设备上移除。`)) {
-    tagStore.deleteTag(tag.id)
+    await tagStore.deleteTag(tag.id)
   }
 }
 </script>
@@ -291,6 +355,12 @@ function deleteTag(tag) {
   border-radius: 10px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
   overflow: hidden;
+  transition: width 0.3s ease, max-height 0.3s ease;
+}
+
+.modal.modal-compact {
+  width: min(480px, 100%);
+  max-height: min(480px, calc(100vh - 48px));
 }
 
 .modal-header {
@@ -343,6 +413,10 @@ function deleteTag(tag) {
   overflow: auto;
 }
 
+.modal-body.assign-mode {
+  grid-template-columns: 1fr;
+}
+
 .panel {
   min-height: 420px;
   display: flex;
@@ -351,6 +425,10 @@ function deleteTag(tag) {
   border-radius: 8px;
   background: var(--bg-secondary);
   overflow: hidden;
+}
+
+.panel.assign-panel-only {
+  min-height: auto;
 }
 
 .panel-header {
@@ -419,10 +497,32 @@ function deleteTag(tag) {
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
+  border: none;
+  cursor: pointer;
 }
 
 .primary-btn:hover {
   background: var(--accent-hover);
+}
+
+.secondary-btn {
+  height: 34px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.cancel-btn-only {
+  width: 100%;
 }
 
 .error-text {
@@ -466,6 +566,10 @@ function deleteTag(tag) {
   flex: 1;
   display: grid;
   grid-template-columns: 220px 1fr;
+}
+
+.assignment-layout.assign-layout-only {
+  grid-template-columns: 1fr;
 }
 
 .device-list {
@@ -557,12 +661,21 @@ function deleteTag(tag) {
   min-height: 0;
   padding: 12px;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.checkbox-list-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .checkbox-list {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  flex: 1;
 }
 
 .tag-checkbox {
@@ -591,6 +704,15 @@ function deleteTag(tag) {
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 600;
+}
+
+.assignment-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 @media (max-width: 768px) {

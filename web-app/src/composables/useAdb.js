@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, toRaw } from 'vue'
 import { Adb, AdbDaemonTransport, AdbPacket, AdbPacketSerializeStream } from '@yume-chan/adb'
 import { PushReadableStream, Consumable, StructDeserializeStream, pipeFrom } from '@yume-chan/stream-extra'
 import { Terminal } from 'xterm'
@@ -11,7 +11,8 @@ import { debugLog } from '@/utils/debug'
 /**
  * 通过 WebRTC DataChannel 建立 ADB 连接，使用 @yume-chan/adb 处理认证和协议
  */
-export function useAdb(webrtc) {
+export function useAdb(webrtcProxy) {
+  const webrtc = toRaw(webrtcProxy)
   const isAdbConnected = ref(false)
   let term = null
   let fitAddon = null
@@ -64,51 +65,68 @@ export function useAdb(webrtc) {
       await new Promise(r => setTimeout(r, 150))
     }
 
-    // 初始化终端
+    // 初始化终端，设置历史缓冲区行数为 10000 行
     term = new Terminal({
       cursorBlink: true,
       background: '#000',
       theme: { background: '#000' },
       fontSize: 12,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace'
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      scrollback: 10000
     })
     fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)
     setTimeout(() => { if (fitAddon) try { fitAddon.fit() } catch (e) {} }, 100)
 
-    term.writeln('\x1b[33m[ADB] 正在通过 WebRTC 隧道建立连接...\x1b[0m')
+    term.writeln('\x1b[33m[ADB] 正在建立 WebRTC ADB 连接通道...\x1b[0m')
 
     try {
-      // 动态加载 CredentialStore 以确保 SubtleCrypto 垫片已完全就绪
-      const AdbWebCredentialStore = (await import('@yume-chan/adb-credential-web')).default
-      const credentialStore = new AdbWebCredentialStore('cloudphone-adb')
+      if (!webrtc._adbInstance) {
+        if (typeof webrtc.recreateAdbChannel === 'function') {
+          webrtc.recreateAdbChannel()
+        }
+        // 动态加载 CredentialStore 以确保 SubtleCrypto 垫片已完全就绪
+        const AdbWebCredentialStore = (await import('@yume-chan/adb-credential-web')).default
+        const credentialStore = new AdbWebCredentialStore('cloudphone-adb')
 
-      // 1. 创建基于 DataChannel 的连接
-      const connection = createConnectionFromDataChannel()
+        term.writeln('\x1b[33m[ADB] 正在认证设备密钥...\x1b[0m')
+        // 1. 创建基于 DataChannel 的连接
+        const connection = createConnectionFromDataChannel()
 
-      // 2. 使用 yume-chan/adb 进行认证握手
-      term.writeln('\x1b[33m[ADB] 正在认证...\x1b[0m')
-      transport = await AdbDaemonTransport.authenticate({
-        serial: 'webrtc-adb',
-        connection,
-        credentialStore,
-        preserveConnection: false,
-      })
+        // 2. 使用 yume-chan/adb 进行认证握手
+        transport = await AdbDaemonTransport.authenticate({
+          serial: 'webrtc-adb',
+          connection,
+          credentialStore,
+          preserveConnection: false,
+        })
 
-      adb = new Adb(transport)
-      debugLog('[ADB] Authenticated, banner:', transport.banner.toString())
-      term.writeln(`\x1b[32m[ADB] 认证成功 (${transport.banner.product || 'device'})\x1b[0m`)
+        adb = new Adb(transport)
+        debugLog('[ADB] Authenticated, banner:', transport.banner.toString())
+        term.writeln(`\x1b[32m[ADB] 设备认证成功 (${transport.banner.product || 'device'})\x1b[0m`)
+
+        webrtc._adbTransport = transport
+        webrtc._adbInstance = adb
+        webrtc._adbRawConnection = connection
+        webrtc._adbActiveSocketsCount = 0
+      } else {
+        adb = toRaw(webrtc._adbInstance)
+        transport = toRaw(webrtc._adbTransport)
+        term.writeln('\x1b[32m[ADB] 复用已建立的 ADB 连接物理通道\x1b[0m')
+      }
+
+      webrtc._adbActiveSocketsCount++
 
       // 3. 打开交互式 shell
-      term.writeln('\x1b[33m[ADB] 正在打开 Shell...\x1b[0m')
+      term.writeln('\x1b[33m[ADB] 正在创建独立 Shell 会话...\x1b[0m')
       shellSocket = await adb.createSocket('shell:')
 
-      term.writeln('\x1b[32m[ADB] Shell 已就绪\x1b[0m\r\n')
+      term.writeln('\x1b[32m[ADB] 终端 Shell 已就绪\x1b[0m\r\n')
       isAdbConnected.value = true
       setTimeout(() => { if (fitAddon) try { fitAddon.fit() } catch (e) {} }, 200)
 
-      // 4. 读取 shell 输出 → 终端
+      // 4. 读取 shell 输出 -> xterm
       const reader = shellSocket.readable.getReader()
       ;(async () => {
         try {
@@ -124,11 +142,11 @@ export function useAdb(webrtc) {
             console.error('[ADB] Shell read error:', e)
           }
         }
-        if (term) term.writeln('\r\n\x1b[31m[ADB] Shell 已断开\x1b[0m')
+        if (term) term.writeln('\r\n\x1b[31m[ADB] 终端 Shell 已断开\x1b[0m')
         isAdbConnected.value = false
       })()
 
-      // 5. 终端输入 → shell
+      // 5. 终端输入 -> shell
       term.onData((data) => {
         if (shellSocket) {
           const writer = shellSocket.writable.getWriter()
@@ -152,18 +170,28 @@ export function useAdb(webrtc) {
       shellSocket = null
     }
 
-    if (adb) {
-      try { await adb.close() } catch (e) {}
-      adb = null
+    if (webrtc && webrtc._adbActiveSocketsCount !== undefined) {
+      webrtc._adbActiveSocketsCount--
+      if (webrtc._adbActiveSocketsCount <= 0) {
+        debugLog('[ADB] No active shell sessions remaining. Disconnecting transport.')
+        if (typeof webrtc.closeAdbChannel === 'function') {
+          webrtc.closeAdbChannel()
+        }
+        if (webrtc._adbInstance) {
+          try { await webrtc._adbInstance.close() } catch (e) {}
+          webrtc._adbInstance = null
+        }
+        if (webrtc._adbTransport) {
+          try { await webrtc._adbTransport.close() } catch (e) {}
+          webrtc._adbTransport = null
+        }
+        webrtc.onAdbData(null)
+        webrtc._adbRawConnection = null
+      }
     }
 
-    if (transport) {
-      try { await transport.close() } catch (e) {}
-      transport = null
-    }
-
-    webrtc.onAdbData(null)
-    readableController = null
+    adb = null
+    transport = null
 
     if (term) {
       const t = term
@@ -173,5 +201,11 @@ export function useAdb(webrtc) {
     }
   }
 
-  return { isAdbConnected, initAdb, closeAdb }
+  function resize() {
+    if (fitAddon) {
+      try { fitAddon.fit() } catch (e) {}
+    }
+  }
+
+  return { isAdbConnected, initAdb, closeAdb, resize }
 }

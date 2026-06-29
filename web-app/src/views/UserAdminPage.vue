@@ -61,8 +61,9 @@
               <td class="actions-cell">
                 <button class="action-btn-mini assign" @click="selectUser(user)" v-if="user.role !== 'admin'" title="分配设备">🔑</button>
                 <button class="action-btn-mini note" @click="openEditNoteModal(user)" title="编辑备注">📝</button>
+                <button class="action-btn-mini rename" @click="openRenameModal(user)" title="重命名用户">🏷️</button>
                 <button class="action-btn-mini reset-pwd" @click="openResetPwdModal(user)" title="重置密码">🔒</button>
-                <button class="action-btn-mini delete" @click="confirmDelete(user)" v-if="user.username !== 'admin'" title="删除用户">🗑️</button>
+                <button class="action-btn-mini delete" @click="confirmDelete(user)" v-if="user.username !== authStore.username" title="删除用户">🗑️</button>
               </td>
             </tr>
           </tbody>
@@ -236,14 +237,42 @@
         </div>
       </div>
     </transition>
+
+    <!-- 模态框 4：重命名用户 -->
+    <transition name="fade">
+      <div class="modal-overlay" v-if="showRenameModal" @click.self="showRenameModal = false">
+        <div class="glass-modal">
+          <div class="modal-header">
+            <h3>🏷️ 重命名用户：{{ editingUser?.username }}</h3>
+            <button class="close-modal" @click="showRenameModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>新用户名</label>
+              <input type="text" v-model="renameForm.newUsername" placeholder="请输入新的用户名" />
+            </div>
+            <p class="modal-tip" v-if="editingUser?.username === authStore.username">
+              ⚠️ 注意：您正在重命名自己当前登录的管理员账户。改名成功后，系统将自动同步更新您的本地账户缓存，无需重新登录。
+            </p>
+          </div>
+          <div class="modal-footer">
+            <span v-if="modalError" class="modal-error">{{ modalError }}</span>
+            <button class="modal-btn cancel" @click="showRenameModal = false">取消</button>
+            <button class="modal-btn submit" @click="submitRename" :disabled="modalSubmitting">保存新名字</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useDeviceStore } from '../stores/devices'
+import { useAuthStore } from '../stores/auth'
 
 const deviceStore = useDeviceStore()
+const authStore = useAuthStore()
 
 const users = ref([])
 const selectedUser = ref(null)
@@ -259,9 +288,14 @@ const toastType = ref('success')
 const showCreateModal = ref(false)
 const showResetPwdModal = ref(false)
 const showEditNoteModal = ref(false)
+const showRenameModal = ref(false)
 const editingUser = ref(null)
 const modalError = ref('')
 const modalSubmitting = ref(false)
+
+const renameForm = ref({
+  newUsername: ''
+})
 
 const createForm = ref({
   username: '',
@@ -514,6 +548,60 @@ async function submitEditNote() {
       throw new Error(txt || '保存失败')
     }
     showEditNoteModal.value = false
+    fetchUsers()
+  } catch (err) {
+    modalError.value = err.message
+  } finally {
+    modalSubmitting.value = false
+  }
+}
+
+function openRenameModal(user) {
+  editingUser.value = user
+  renameForm.value.newUsername = user.username
+  modalError.value = ''
+  showRenameModal.value = true
+}
+
+async function submitRename() {
+  const newName = renameForm.value.newUsername.trim()
+  if (!newName) {
+    modalError.value = '用户名不能为空'
+    return
+  }
+  modalSubmitting.value = true
+  modalError.value = ''
+  try {
+    const res = await fetch('/api/admin/users/rename', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.token}`
+      },
+      body: JSON.stringify({
+        old_username: editingUser.value.username,
+        new_username: newName
+      })
+    })
+
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(txt || '重命名失败')
+    }
+
+    // 如果修改的是自己登录的管理员账户，同步更新前端 Auth 缓存
+    if (editingUser.value.username === authStore.username) {
+      authStore.username = newName
+      localStorage.setItem('auth_user', newName)
+    }
+
+    toastType.value = 'success'
+    toastMsg.value = '✨ 用户重命名成功！'
+    setTimeout(() => {
+      toastMsg.value = ''
+    }, 1500)
+
+    showRenameModal.value = false
     fetchUsers()
   } catch (err) {
     modalError.value = err.message

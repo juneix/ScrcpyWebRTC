@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, shallowRef, markRaw } from 'vue'
 import { debugLog } from '@/utils/debug'
+import { useTagStore } from './tags'
 
 export const useDeviceStore = defineStore('devices', () => {
   const devices = ref([])
@@ -301,8 +302,20 @@ export const useDeviceStore = defineStore('devices', () => {
           window.dispatchEvent(new CustomEvent('cloudphone-settings-updated', { detail: { deviceId: '' } }))
         } else if (msg.message_type === 'device_list_update') {
           updateFromList(msg.devices)
+        } else if (msg.message_type === 'tags_update') {
+          const tagsStore = useTagStore()
+          tagsStore.updateTagsFromRemote(msg.tags, msg.deviceTags)
         } else if (msg.type === 'device_metrics') {
           updateMetrics(msg.device_id, msg.metrics)
+        } else if (msg.message_type === 'task_status_updated') {
+          const task = msg.task
+          if (currentTask.value && currentTask.value.task_id === task.task_id) {
+            currentTask.value = task
+            const allDone = Object.values(task.devices).every(sub => ['success', 'failed'].includes(sub.status))
+            if (allDone) {
+              stopTrackingTask()
+            }
+          }
         } else if (msg.error === 'license_expired') {
           isLicenseExpired.value = true
           licenseErrorMsg.value = msg.reason || '当前版本已不受支持，请升级'
@@ -429,15 +442,60 @@ export const useDeviceStore = defineStore('devices', () => {
     showGlobalConsole.value = false
   }
 
+  function destroyGlobalConsole() {
+    showGlobalConsole.value = false
+    consoleDeviceId.value = null
+  }
+
   function setConsoleHeight(height) {
-    const validHeight = Math.max(200, Math.min(800, height))
+    const maxHeight = typeof window !== 'undefined' ? Math.max(600, window.innerHeight - 100) : 1200
+    const validHeight = Math.max(200, Math.min(maxHeight, height))
     globalConsoleHeight.value = validHeight
     try {
       localStorage.setItem('cloudphone_console_height', String(validHeight))
     } catch(e) {}
   }
 
+  const currentTask = ref(null)
+  let trackingTimer = null
+
+  function startTrackingTask(taskId) {
+    stopTrackingTask()
+    pollTaskDetails(taskId)
+    trackingTimer = setInterval(() => pollTaskDetails(taskId), 2000)
+  }
+
+  function stopTrackingTask() {
+    if (trackingTimer) {
+      clearInterval(trackingTimer)
+      trackingTimer = null
+    }
+  }
+
+  async function pollTaskDetails(taskId) {
+    const token = localStorage.getItem('auth_token') || ''
+    try {
+      const res = await fetch(`/api/tasks/details?task_id=${encodeURIComponent(taskId)}`, {
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        currentTask.value = data
+        
+        const allDone = Object.values(data.devices).every(sub => ['success', 'failed'].includes(sub.status))
+        if (allDone) {
+          stopTrackingTask()
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to poll task details:', e)
+    }
+  }
+
   return {
+    currentTask,
+    startTrackingTask,
+    stopTrackingTask,
     devices,
     offlineDevices,
     loading,
@@ -464,6 +522,7 @@ export const useDeviceStore = defineStore('devices', () => {
     openGlobalConsole,
     toggleGlobalConsole,
     closeGlobalConsole,
+    destroyGlobalConsole,
     setConsoleHeight,
     isLicenseExpired,
     licenseErrorMsg,

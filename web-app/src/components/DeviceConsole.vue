@@ -1,7 +1,7 @@
 <template>
-  <div class="device-console" :style="{ height: height }">
+  <div ref="consoleMainRef" class="device-console" :class="{ 'is-maximized': isMaximized }" :style="{ height: isMaximized ? '100vh' : height }">
     <!-- 顶部拖拽拉伸手柄 -->
-    <div class="console-resizer" @mousedown="startResizingConsole" title="拖动调整控制台高度"></div>
+    <div class="console-resizer" v-if="!isMaximized" @mousedown="startResizingConsole" title="拖动调整控制台高度"></div>
 
     <!-- 控制台顶部 Tab 导航 -->
     <header class="console-tabs-bar">
@@ -51,7 +51,30 @@
             </option>
           </select>
         </div>
-        <button class="console-close-btn" @click="deviceStore.closeGlobalConsole()" title="隐藏控制台">
+        
+        <!-- 全屏最大化切换按钮 -->
+        <button 
+          class="console-tool-btn" 
+          @click="toggleMaximize" 
+          :title="isMaximized ? '还原窗口' : '全屏显示'"
+        >
+          <svg v-if="!isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 14h6v6m10-6h-6v6M4 10h6V4m10 6h-6V4"></path>
+          </svg>
+        </button>
+
+        <!-- 最小化隐藏按钮 (保持连接) -->
+        <button class="console-tool-btn" @click="deviceStore.closeGlobalConsole()" title="收起隐藏控制台 (终端继续后台运行)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+
+        <!-- 彻底关闭断开按钮 -->
+        <button class="console-close-btn" @click="deviceStore.destroyGlobalConsole()" title="关闭控制台 (断开所有终端连接)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -66,8 +89,29 @@
       <div v-show="activeTab === 'shell'" class="shell-tab-panel">
         <div class="console-history" ref="consoleRef">
           <div v-for="(log, idx) in consoleLogs" :key="idx" :class="['log-item', log.type]">
-            <span class="log-cmd" v-if="log.cmd">$ {{ log.cmd }}</span>
-            <pre class="log-out">{{ log.text }}</pre>
+            <template v-if="log.type === 'batch_result'">
+              <span class="log-cmd">$ [批量] {{ log.cmd }} (发送至 {{ Object.keys(log.results).length }} 台设备)</span>
+              <div class="batch-outputs-list">
+                <div 
+                  v-for="(res, devId) in log.results" 
+                  :key="devId" 
+                  class="batch-output-row"
+                  :class="res.status"
+                >
+                  <div class="row-header">
+                    <span class="dev-tag">[{{ devId }}]</span>
+                    <span class="status-tag" :class="res.status">
+                      {{ res.status === 'running' ? '⏳ 执行中' : (res.status === 'success' ? '✅ 成功' : '❌ 失败') }}
+                    </span>
+                  </div>
+                  <pre class="dev-output">{{ res.output }}</pre>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <span class="log-cmd" v-if="log.cmd">$ {{ log.cmd }}</span>
+              <pre class="log-out">{{ log.text }}</pre>
+            </template>
           </div>
           <div v-if="consoleLogs.length === 0" class="console-empty">
             <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -83,26 +127,82 @@
           <button @click="quickCmd('settings put system pointer_location 0')">关闭轨迹</button>
           <button @click="consoleLogs = []">清屏</button>
         </div>
+
+        <!-- 并发下发目标设备选择 -->
+        <div class="shell-targets-bar">
+          <span class="label">并发目标：</span>
+          <div class="targets-list">
+            <label class="target-check current">
+              <input type="checkbox" checked disabled />
+              <span class="checkbox-custom"></span>
+              <span class="name">{{ deviceId }} (当前)</span>
+            </label>
+            <label 
+              v-for="d in deviceStore.devices.filter(dev => dev.status === 'online' && dev.id !== deviceId)" 
+              :key="d.id" 
+              class="target-check"
+            >
+              <input type="checkbox" :value="d.id" v-model="batchShellSelectedIds" />
+              <span class="checkbox-custom"></span>
+              <span class="name">{{ d.id }}</span>
+            </label>
+          </div>
+        </div>
+
         <div class="console-input-group">
           <input 
             v-model="inputCmd" 
             @keyup.enter="execCmd"
-            placeholder="输入 Android Shell 命令 (例如: pm list packages)..."
+            placeholder="输入 Android Shell 命令分发执行以获取回复..."
             class="cmd-input"
           />
-          <button @click="execCmd" class="send-btn" :disabled="!inputCmd.trim()">发送</button>
+          <button @click="execCmd" class="send-btn" :disabled="!inputCmd.trim()">{{ sendBtnText }}</button>
         </div>
       </div>
 
       <!-- 2. ADB 交互终端 (xterm.js) -->
       <div v-show="activeTab === 'adb'" class="adb-tab-panel">
-        <div v-if="!isAdbConnected" class="adb-placeholder">
+        <!-- 终端会话 Tab 栏 -->
+        <div class="adb-sessions-bar" v-if="adbSessions.length > 0">
+          <div class="adb-tabs-group">
+            <button 
+              v-for="sess in adbSessions" 
+              :key="sess.id"
+              :class="{ active: activeSessionId === sess.id }"
+              @click="switchAdbSession(sess.id)"
+              class="adb-session-tab"
+            >
+              <span class="tab-status-dot" :class="{ connected: sess.isConnected }"></span>
+              <span class="sess-name">{{ sess.name }}</span>
+              <span class="close-sess-btn" @click.stop="closeAdbSession(sess.id)" title="关闭会话">×</span>
+            </button>
+            <button 
+              class="add-sess-btn" 
+              @click="addAdbSession" 
+              title="新建终端会话" 
+              :disabled="adbSessions.length >= 5"
+            >
+              +
+            </button>
+          </div>
+          <span class="max-sess-tip">最多支持开启 5 个终端页</span>
+        </div>
+
+        <div v-if="adbSessions.length === 0" class="adb-placeholder">
           <svg class="adb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><polyline points="9 9 9 15 12 12 15 15 15 9"></polyline></svg>
           <h3>开启交互式 ADB Web 终端</h3>
-          <p>基于 WebRTC P2P 数据加密通道直连，支持 Tab 补全、交互交互式程序</p>
-          <button class="adb-connect-btn" @click="startAdb" :disabled="webrtcStatus !== 'connected'">初始化 ADB 终端</button>
+          <p>基于 WebRTC P2P 数据加密通道直连，支持 Tab 补全、多会话独立并发调试</p>
+          <button class="adb-connect-btn" @click="addAdbSession" :disabled="webrtcStatus !== 'connected'">初始化 ADB 终端</button>
         </div>
-        <div ref="termContainer" class="xterm-view-container" v-show="isAdbConnected"></div>
+
+        <!-- 渲染各会话的多容器 -->
+        <div 
+          v-for="sess in adbSessions" 
+          :key="sess.id"
+          :ref="el => { if (el) sessionContainers[sess.id] = el }"
+          class="xterm-view-container" 
+          v-show="activeSessionId === sess.id"
+        ></div>
       </div>
 
       <!-- 3. AI 助手 (AI Agent) -->
@@ -148,7 +248,19 @@
               </div>
               <div class="form-row">
                 <label>API Key / Token:</label>
-                <input v-model="aiKey" type="password" placeholder="填写您的 API Key (Token)" />
+                <div class="password-input-wrapper">
+                  <input v-model="aiKey" :type="showAiKey ? 'text' : 'password'" placeholder="填写您的 API Key (Token)" />
+                  <button type="button" class="eye-toggle-btn" @click="showAiKey = !showAiKey" :title="showAiKey ? '隐藏' : '显示'">
+                    <svg v-if="showAiKey" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                      <line x1="1" y1="1" x2="23" y2="23"></line>
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div class="form-row">
                 <label>模型 (Model):</label>
@@ -247,6 +359,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useDeviceStore } from '@/stores/devices'
+import { useAuthStore } from '@/stores/auth'
 import { useAdb } from '@/composables/useAdb'
 import { useWebRTC } from '@/composables/useWebRTC'
 import { getDeviceSettings } from '@/utils/settings'
@@ -269,23 +382,63 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const deviceStore = useDeviceStore()
-const termContainer = ref(null)
+const authStore = useAuthStore()
 const dummyVideo = ref(null)
 const consoleRef = ref(null)
 const chatRef = ref(null)
 
+const showAiKey = ref(false)
 const activeTab = ref('shell')
 const consoleLogs = ref([])
 const inputCmd = ref('')
 
+// --- 批量 Shell 与单台整合状态 ---
+const batchShellSelectedIds = ref([])
+const targetDeviceIds = computed(() => [props.deviceId, ...batchShellSelectedIds.value])
+const sendBtnText = computed(() => targetDeviceIds.value.length > 1 ? `并发发送 (${targetDeviceIds.value.length}台)` : '发送')
+
+// 监听当前主设备变化，若新设备在 batchShellSelectedIds 中，则将其过滤掉以防重复
+watch(() => props.deviceId, (newId) => {
+  if (newId) {
+    batchShellSelectedIds.value = batchShellSelectedIds.value.filter(id => id !== newId)
+  }
+})
+
+// 监听 Pinia Store 里的当前任务进度更新结果，直接定位并写入 consoleLogs 里的 batch_result 项
+watch(() => deviceStore.currentTask, (newTask) => {
+  if (newTask && newTask.type === 'shell') {
+    const logItem = consoleLogs.value.find(item => item.type === 'batch_result' && item.taskId === newTask.task_id)
+    if (logItem) {
+      Object.entries(newTask.devices).forEach(([devId, info]) => {
+        logItem.results[devId] = {
+          status: info.status,
+          output: info.result || (info.status === 'running' ? 'Running...' : '无输出回复')
+        }
+      })
+    }
+  }
+}, { deep: true })
+
 // WebRTC 状态绑定
 const webrtc = ref(null)
-const adbInstance = ref(null)
 const isSharedConnection = ref(false)
 const webrtcConnecting = ref(false)
 const webrtcStatus = ref('disconnected')
 const webrtcError = ref(null)
-const isAdbConnected = ref(false)
+
+// 多终端 Tab 与全屏支持相关状态
+const adbSessions = ref([])
+const activeSessionId = ref(null)
+const nextSessionId = ref(1)
+const sessionContainers = {}
+const isMaximized = ref(false)
+const consoleMainRef = ref(null)
+
+const isAdbConnected = computed(() => {
+  if (activeSessionId.value === null) return false
+  const sess = adbSessions.value.find(s => s.id === activeSessionId.value)
+  return sess ? sess.isConnected : false
+})
 
 function onDeviceSelectChange(e) {
   const newId = e.target.value
@@ -487,14 +640,71 @@ function cleanupConnection() {
   webrtc.value = null
 }
 
-// 终端指令
-function execCmd() {
-  if (!inputCmd.value.trim() || !webrtc.value) return
-  const cmd = inputCmd.value
-  consoleLogs.value.push({ type: 'info', cmd: cmd, text: '执行中...' })
-  webrtc.value.sendCommand(cmd)
+// 终端指令 (支持单台 WebRTC 实时指令及多台 HTTP 批量指令下发双通路)
+async function execCmd() {
+  if (!inputCmd.value.trim()) return
+  const cmd = inputCmd.value.trim()
   inputCmd.value = ''
-  scrollToBottom()
+
+  const targets = targetDeviceIds.value
+
+  if (targets.length === 1) {
+    // 仅当前一台设备，走原生 WebRTC 极速实时通道
+    if (!webrtc.value) {
+      consoleLogs.value.push({ type: 'error', text: 'WebRTC 连接未就绪，无法发送指令。' })
+      scrollToBottom()
+      return
+    }
+    consoleLogs.value.push({ type: 'info', cmd: cmd, text: '执行中...' })
+    webrtc.value.sendCommand(cmd)
+    scrollToBottom()
+  } else {
+    // 多台目标设备，走批量 HTTP 任务下发通道
+    const logItem = ref({
+      type: 'batch_result',
+      cmd: cmd,
+      taskId: '',
+      results: {}
+    })
+    
+    // 初始化所有目标设备的状态
+    targets.forEach(id => {
+      logItem.value.results[id] = { status: 'running', output: 'Pending...' }
+    })
+    
+    consoleLogs.value.push(logItem.value)
+    scrollToBottom()
+
+    try {
+      const token = localStorage.getItem('auth_token') || ''
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({
+          type: 'shell',
+          targets: targets,
+          payload: cmd
+        })
+      })
+
+      const data = await res.json()
+      if (res.ok && data.status === 'success') {
+        logItem.value.taskId = data.task_id
+        deviceStore.startTrackingTask(data.task_id)
+      } else {
+        targets.forEach(id => {
+          logItem.value.results[id] = { status: 'failed', output: data.error || '下发任务失败' }
+        })
+      }
+    } catch (e) {
+      targets.forEach(id => {
+        logItem.value.results[id] = { status: 'failed', output: e.message }
+      })
+    }
+  }
 }
 
 function quickCmd(cmd) {
@@ -510,34 +720,144 @@ function scrollToBottom() {
   })
 }
 
-// ADB xterm.js 管理
-function startAdb() {
-  if (webrtc.value && termContainer.value) {
-    const { isAdbConnected: adbConnected, initAdb, closeAdb: close } = useAdb(webrtc.value)
+// 全屏最大化切换
+function toggleMaximize() {
+  isMaximized.value = !isMaximized.value
+  nextTick(() => {
+    const activeSess = adbSessions.value.find(s => s.id === activeSessionId.value)
+    if (activeSess && activeSess.isConnected && activeSess.adbInstance) {
+      activeSess.adbInstance.resize()
+    }
+  })
+}
+
+// 二级多会话终端管理
+function addAdbSession() {
+  const id = nextSessionId.value++
+  const newSession = {
+    id,
+    name: `Shell ${id}`,
+    isConnected: false,
+    adbInstance: null,
+    unwatch: null
+  }
+  adbSessions.value.push(newSession)
+  activeSessionId.value = id
+  
+  nextTick(() => {
+    startAdbForSession(newSession)
+  })
+}
+
+function startAdbForSession(sess) {
+  if (webrtc.value) {
+    const container = sessionContainers[sess.id]
+    if (!container) return
+
+    const { isAdbConnected: adbConnected, initAdb, closeAdb: close, resize: termResize } = useAdb(webrtc.value)
+    sess.adbInstance = { initAdb, closeAdb: close, resize: termResize }
     
-    adbInstance.value = { initAdb, closeAdb: close }
-    
-    watch(adbConnected, (val) => {
-      isAdbConnected.value = val
+    sess.unwatch = watch(adbConnected, (val) => {
+      sess.isConnected = val
     }, { immediate: true })
     
-    adbInstance.value.initAdb(termContainer.value)
+    sess.adbInstance.initAdb(container)
+  }
+}
+
+function switchAdbSession(id) {
+  activeSessionId.value = id
+  nextTick(() => {
+    const sess = adbSessions.value.find(s => s.id === id)
+    if (sess && sess.adbInstance && sess.isConnected) {
+      sess.adbInstance.resize()
+    }
+  })
+}
+
+function closeAdbSession(id) {
+  const idx = adbSessions.value.findIndex(s => s.id === id)
+  if (idx > -1) {
+    const sess = adbSessions.value[idx]
+    if (sess.adbInstance) {
+      try { sess.adbInstance.closeAdb() } catch (e) {}
+    }
+    if (sess.unwatch) sess.unwatch()
+    
+    adbSessions.value.splice(idx, 1)
+    delete sessionContainers[id]
+    
+    if (activeSessionId.value === id) {
+      if (adbSessions.value.length > 0) {
+        activeSessionId.value = adbSessions.value[adbSessions.value.length - 1].id
+        nextTick(() => {
+          const activeSess = adbSessions.value.find(s => s.id === activeSessionId.value)
+          if (activeSess && activeSess.adbInstance && activeSess.isConnected) {
+            activeSess.adbInstance.resize()
+          }
+        })
+      } else {
+        activeSessionId.value = null
+      }
+    }
+  }
+}
+
+function cleanupAllAdbSessions() {
+  adbSessions.value.forEach(sess => {
+    if (sess.adbInstance) {
+      try { sess.adbInstance.closeAdb() } catch (e) {}
+    }
+    if (sess.unwatch) sess.unwatch()
+  })
+  adbSessions.value = []
+  activeSessionId.value = null
+  nextSessionId.value = 1
+  for (const k in sessionContainers) {
+    delete sessionContainers[k]
   }
 }
 
 function closeAdb() {
-  if (adbInstance.value) {
-    try { adbInstance.value.closeAdb() } catch (e) {}
-    adbInstance.value = null
-  }
+  cleanupAllAdbSessions()
 }
 
 // AI Agent 设置及技能管理
+// AI Agent 设置及技能管理
+function loadConfigFromStorage() {
+  aiUrl.value = safeStorageGet('ai_api_url', 'https://api.openai.com/v1')
+  aiKey.value = safeStorageGet('ai_api_key', '')
+  aiModel.value = safeStorageGet('ai_model', 'gpt-4o-mini')
+  aiProvider.value = safeStorageGet('ai_provider', 'openai')
+}
+
+// 监听控制台显示状态，实现多端配置的热同步
+watch(() => deviceStore.showGlobalConsole, (newVal) => {
+  if (newVal) {
+    loadConfigFromStorage()
+  }
+})
+
 function saveAiSettings() {
   safeStorageSet('ai_api_url', aiUrl.value)
   safeStorageSet('ai_api_key', aiKey.value)
   safeStorageSet('ai_model', aiModel.value)
   safeStorageSet('ai_provider', aiProvider.value)
+
+  // 异步同步到服务器跟随账户系统
+  authStore.saveAIConfig({
+    ai_api_url: aiUrl.value,
+    ai_api_key: aiKey.value,
+    ai_model: aiModel.value,
+    ai_provider: aiProvider.value
+  }).then(success => {
+    if (success) {
+      logTrace('system', `AI 配置信息已同步保存至服务端账户数据中`)
+    } else {
+      logTrace('system', `AI 配置已在本地生效，但未能成功同步至云端`)
+    }
+  })
+
   showAiSettings.value = false
   logTrace('system', `AI 配置已更新，Model: ${aiModel.value}, Provider: ${aiProvider.value}`)
 }
@@ -927,12 +1247,29 @@ function startResizingConsole(e) {
   document.addEventListener('mouseup', onMouseUp)
 }
 
+let resizeObserver = null
+
 onMounted(() => {
   setupDeviceConnection(props.deviceId)
+  
+  if (typeof ResizeObserver !== 'undefined' && consoleMainRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      // 当容器高度或宽度变化时，让当前连接活跃的 ADB 终端自适应
+      const activeSess = adbSessions.value.find(s => s.id === activeSessionId.value)
+      if (activeSess && activeSess.isConnected && activeSess.adbInstance) {
+        activeSess.adbInstance.resize()
+      }
+    })
+    resizeObserver.observe(consoleMainRef.value)
+  }
 })
 
 onUnmounted(() => {
   cleanupConnection()
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
 })
 </script>
 
@@ -1301,7 +1638,8 @@ onUnmounted(() => {
 .xterm-view-container {
   flex: 1;
   width: 100%;
-  height: 100%;
+  height: 0;
+  min-height: 0;
   padding: 12px;
   box-sizing: border-box;
   background: #000;
@@ -1506,6 +1844,42 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 12px;
   outline: none;
+}
+
+.password-input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 32px;
+}
+
+.eye-toggle-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+  outline: none;
+}
+
+.eye-toggle-btn:hover {
+  color: white;
+}
+
+.eye-toggle-btn .icon {
+  width: 15px;
+  height: 15px;
 }
 
 .form-actions {
@@ -1827,5 +2201,298 @@ onUnmounted(() => {
 .device-selector-dropdown option {
   background: #161b22;
   color: #c9d1d9;
+}
+
+/* 全屏最大化样式 */
+.device-console.is-maximized {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 2100;
+  border-radius: 0;
+  border-top: none;
+}
+
+/* 控制台顶部工具按钮 */
+.console-tool-btn {
+  background: none;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.console-tool-btn:hover {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.15);
+}
+
+.console-tool-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 二级 ADB 多会话终端 Tab 栏样式 */
+.adb-sessions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0d1117;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0 12px;
+  height: 36px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.adb-tabs-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.adb-session-tab {
+  background: none;
+  border: none;
+  color: #8b949e;
+  padding: 0 12px;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.adb-session-tab:hover {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.adb-session-tab.active {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.1);
+  font-weight: 600;
+}
+
+.tab-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b949e;
+}
+
+.tab-status-dot.connected {
+  background: #3fb950;
+  box-shadow: 0 0 8px rgba(63, 185, 80, 0.5);
+}
+
+.close-sess-btn {
+  font-size: 14px;
+  line-height: 1;
+  color: #8b949e;
+  transition: color 0.2s;
+  padding: 2px;
+  border-radius: 50%;
+}
+
+.close-sess-btn:hover {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.add-sess-btn {
+  background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  color: #8b949e;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.add-sess-btn:hover:not(:disabled) {
+  color: #58a6ff;
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.add-sess-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.max-sess-tip {
+  font-size: 11px;
+  color: #484f58;
+}
+
+/* 批量 Shell 样式系统 */
+.batch-shell-tab-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.batch-shell-devices-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 批量与单台整合终端样式 */
+.shell-targets-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  border-bottom: 1px solid #30363d;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.shell-targets-bar .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b949e;
+}
+
+.shell-targets-bar .targets-list {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.target-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #c9d1d9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.target-check.current {
+  opacity: 0.8;
+  cursor: default;
+}
+
+.target-check input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: #58a6ff;
+  cursor: pointer;
+}
+
+.target-check.current input[type="checkbox"] {
+  cursor: default;
+}
+
+/* 整合历史面板中的批量输出渲染 */
+.log-item.batch_result {
+  border-left: 2px solid #58a6ff;
+  padding-left: 8px;
+  margin: 12px 0;
+  background: rgba(88, 166, 255, 0.02);
+}
+
+.batch-outputs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.batch-output-row {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch-output-row.running {
+  border-color: rgba(210, 153, 34, 0.4);
+}
+
+.batch-output-row.success {
+  border-color: rgba(46, 160, 67, 0.4);
+}
+
+.batch-output-row.failed {
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.batch-output-row .row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-output-row .dev-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c9d1d9;
+}
+
+.batch-output-row .status-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.batch-output-row .status-tag.running {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
+.batch-output-row .status-tag.success {
+  background: rgba(46, 160, 67, 0.15);
+  color: #56d364;
+}
+
+.batch-output-row .status-tag.failed {
+  background: rgba(248, 81, 73, 0.15);
+  color: #ff7b72;
+}
+
+.batch-output-row .dev-output {
+  margin: 0;
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #0d1117;
+  padding: 6px 10px;
+  border-radius: 4px;
 }
 </style>

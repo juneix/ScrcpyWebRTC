@@ -97,49 +97,8 @@
 
       <!-- 视图渲染 -->
       <div class="tab-viewport">
-        <!-- 1. 实时操作同步（群控） -->
-        <div v-if="activeTab === 'control'" class="tab-pane control-pane-layout">
-          <div v-if="!masterDeviceId" class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-            <h3>未设置主控机</h3>
-            <p>请先在左侧勾选设备，并将其“设为主控”，其他勾选的从设备将实时同步主控的操作。</p>
-          </div>
-          <div v-else class="master-screen-wrapper">
-            <div 
-              class="screen-container"
-              ref="screenRef"
-              @pointerdown="handlePointerDown"
-              @pointermove="handlePointerMove"
-              @pointerup="handlePointerUp"
-              @pointerleave="handlePointerLeave"
-              @wheel.prevent="handleWheel"
-              @contextmenu.prevent
-            >
-              <video ref="masterVideo" class="master-video" autoplay playsinline muted></video>
-              <div class="screen-overlay-tip">主控操作屏 (同步发送至从设备)</div>
-            </div>
-            
-            <div class="master-control-sidebar">
-              <h4>主控常用物理按键</h4>
-              <div class="control-grid">
-                <button class="action-btn" @click="sendKey(3)">HOME</button>
-                <button class="action-btn" @click="sendKey(4)">BACK</button>
-                <button class="action-btn" @click="sendKey(82)">MENU</button>
-                <button class="action-btn" @click="sendKey(26)">POWER</button>
-              </div>
-              <div class="sync-info-box">
-                <h5>当前群控配置</h5>
-                <ul>
-                  <li>主控设备: <strong>{{ masterDeviceId }}</strong></li>
-                  <li>同步从设备数: <strong>{{ slaveDeviceIds.length }} 台</strong></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- 2. 批量安装与文件传输 -->
-        <div v-else-if="activeTab === 'files'" class="tab-pane">
+        <div v-if="activeTab === 'files'" class="tab-pane">
           <div class="task-form-card">
             <h4>批量安装与分发</h4>
             <p class="subtitle">采用内置 HTTP 分发拉取技术，适合大文件及 APK，避免浏览器网络过载。</p>
@@ -168,6 +127,18 @@
                   <div class="progress-bar" :style="{ width: uploadProgress + '%' }"></div>
                   <span class="progress-text">已上传 {{ uploadProgress }}%</span>
                 </div>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px; margin-bottom: 15px;">
+              <label>或者，从云端文件中心选择已有文件</label>
+              <div class="cloud-file-selector">
+                <select v-model="selectedCloudFileName" @change="handleCloudFileChange" class="form-select" style="width: 100%; height: 40px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0 10px;">
+                  <option value="">-- 选择云端已有文件 --</option>
+                  <option v-for="file in cloudFiles" :key="file.name" :value="file.name">
+                    {{ file.name }} ({{ formatBytes(file.size) }})
+                  </option>
+                </select>
               </div>
             </div>
 
@@ -225,26 +196,6 @@
           </div>
         </div>
 
-        <!-- 4. 批量指令下发 -->
-        <div v-else-if="activeTab === 'shell'" class="tab-pane">
-          <div class="task-form-card">
-            <h4>批量下发 Shell 指令</h4>
-            <p class="subtitle">向所有选中的虚拟机发送底层 Shell 命令并汇总执行结果。</p>
-            
-            <div class="form-group">
-              <label>Shell 脚本命令</label>
-              <textarea v-model="shellCommand" placeholder="例如: getprop ro.product.model" rows="5" class="form-textarea"></textarea>
-            </div>
-
-            <button 
-              class="submit-task-btn" 
-              :disabled="selectedDeviceIds.length === 0 || !shellCommand || isSubmitting"
-              @click="submitShellTask"
-            >
-              {{ isSubmitting ? '下发指令中...' : '并发执行指令 (' + selectedDeviceIds.length + ' 台设备)' }}
-            </button>
-          </div>
-        </div>
 
         <!-- 批量任务执行仪表盘 (Dashboard) -->
         <section class="task-dashboard-section" v-if="currentTask">
@@ -343,12 +294,46 @@ const deviceStore = useDeviceStore()
 
 // 视图 Tab 配置
 const tabs = [
-  { value: 'control', label: '实时群控', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>' },
   { value: 'files', label: '批量安装/传输', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>' },
-  { value: 'apps', label: '应用批量控制', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>' },
-  { value: 'shell', label: '批量指令 (Shell)', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>' }
+  { value: 'apps', label: '应用批量控制', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>' }
 ]
-const activeTab = ref('control')
+const activeTab = ref('files')
+
+const cloudFiles = ref([])
+const selectedCloudFileName = ref('')
+
+const fetchCloudFiles = async () => {
+  try {
+    const token = localStorage.getItem('auth_token') || ''
+    const res = await fetch('/api/files', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    if (res.ok) {
+      cloudFiles.value = await res.json()
+    }
+  } catch(e) {
+    console.warn('Failed to fetch cloud files:', e)
+  }
+}
+
+const handleCloudFileChange = () => {
+  if (!selectedCloudFileName.value) {
+    clearUploadedFile()
+    return
+  }
+  const file = cloudFiles.value.find(f => f.name === selectedCloudFileName.value)
+  if (file) {
+    uploadedFileName.value = file.name
+    uploadedFileSize.value = file.size
+    uploadProgress.value = 100 // 模拟已上传
+    
+    if (file.name.endsWith('.apk')) {
+      fileTaskType.value = 'install'
+    } else {
+      fileTaskType.value = 'push_file'
+    }
+  }
+}
 
 // 标签筛选
 const selectedTag = ref('')
@@ -666,6 +651,7 @@ const startUploadFile = (file) => {
   xhr.onload = () => {
     if (xhr.status === 200) {
       uploadProgress.value = 100
+      fetchCloudFiles()
     } else {
       alert('文件上传至服务器失败: ' + xhr.responseText)
       clearUploadedFile()
@@ -716,8 +702,10 @@ const submitFileTask = async () => {
 
     const data = await res.json()
     if (res.ok && data.status === 'success') {
-      startTrackingTask(data.task_id)
+      deviceStore.startTrackingTask(data.task_id)
       clearUploadedFile()
+      selectedCloudFileName.value = ''
+      fetchCloudFiles()
     } else {
       alert('下发批量拉取任务失败: ' + (data.error || '未知错误'))
     }
@@ -753,7 +741,7 @@ const submitAppControl = async (type) => {
 
     const data = await res.json()
     if (res.ok && data.status === 'success') {
-      startTrackingTask(data.task_id)
+      deviceStore.startTrackingTask(data.task_id)
     } else {
       alert('下发应用控制任务失败: ' + (data.error || '未知错误'))
     }
@@ -789,7 +777,7 @@ const submitShellTask = async () => {
 
     const data = await res.json()
     if (res.ok && data.status === 'success') {
-      startTrackingTask(data.task_id)
+      deviceStore.startTrackingTask(data.task_id)
       shellCommand.value = ''
     } else {
       alert('下发 Shell 任务失败: ' + (data.error || '未知错误'))
@@ -802,42 +790,7 @@ const submitShellTask = async () => {
 }
 
 // --- 批量任务仪表盘与细节追踪 ---
-const currentTask = ref(null)
-let trackingTimer = null
-
-const startTrackingTask = (taskId) => {
-  stopTrackingTask()
-  pollTaskDetails(taskId)
-  trackingTimer = setInterval(() => pollTaskDetails(taskId), 2000)
-}
-
-const stopTrackingTask = () => {
-  if (trackingTimer) {
-    clearInterval(trackingTimer)
-    trackingTimer = null
-  }
-}
-
-const pollTaskDetails = async (taskId) => {
-  const token = localStorage.getItem('auth_token') || ''
-  try {
-    const res = await fetch(`/api/tasks/details?task_id=${encodeURIComponent(taskId)}`, {
-      headers: { 'Authorization': 'Bearer ' + token }
-    })
-    if (res.ok) {
-      const data = await res.json()
-      currentTask.value = data
-      
-      // 判断是否所有子任务均已完成
-      const allDone = Object.values(data.devices).every(sub => ['success', 'failed'].includes(sub.status))
-      if (allDone) {
-        stopTrackingTask()
-      }
-    }
-  } catch (e) {
-    console.warn('Failed to poll task details:', e)
-  }
-}
+const currentTask = computed(() => deviceStore.currentTask)
 
 // 统计计算
 const totalCount = computed(() => {
@@ -855,18 +808,6 @@ const finishedCount = computed(() => {
   if (!currentTask.value) return 0
   return Object.values(currentTask.value.devices).filter(sub => ['success', 'failed'].includes(sub.status)).length
 })
-
-// WebSocket 实时推送监听
-const handleTaskStatusUpdated = (e) => {
-  const task = e.detail
-  if (currentTask.value && currentTask.value.task_id === task.task_id) {
-    currentTask.value = task
-    const allDone = Object.values(task.devices).every(sub => ['success', 'failed'].includes(sub.status))
-    if (allDone) {
-      stopTrackingTask()
-    }
-  }
-}
 
 // 查看指令输出弹窗
 const activeLogOutput = ref(null)
@@ -913,13 +854,11 @@ const translateStatus = (status) => {
 }
 
 onMounted(() => {
-  window.addEventListener('cloudphone-task-status-updated', handleTaskStatusUpdated)
+  fetchCloudFiles()
 })
 
 onUnmounted(() => {
   cleanupWebRTC()
-  stopTrackingTask()
-  window.removeEventListener('cloudphone-task-status-updated', handleTaskStatusUpdated)
 })
 </script>
 

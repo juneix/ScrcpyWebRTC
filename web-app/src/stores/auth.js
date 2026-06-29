@@ -36,6 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('auth_user', data.username)
       localStorage.setItem('auth_role', data.role || 'user')
       localStorage.setItem('auth_devices', JSON.stringify(data.assigned_devices || []))
+      await fetchMe()
       return true
     } catch (error) {
       console.error('Login error:', error)
@@ -104,6 +105,55 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function fetchMe() {
+    if (noAuthMode.value || !token.value) return
+    try {
+      const res = await fetch('/api/me', {
+        headers: {
+          'Authorization': `Bearer ${token.value}`
+        }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        username.value = data.username
+        role.value = data.role || 'user'
+        assignedDevices.value = data.assigned_devices || []
+        
+        localStorage.setItem('auth_user', data.username)
+        localStorage.setItem('auth_role', data.role || 'user')
+        localStorage.setItem('auth_devices', JSON.stringify(data.assigned_devices || []))
+
+        // 如果服务器端返回了用户的 AI 配置，同步保存到 localStorage
+        if (data.ai_config) {
+          localStorage.setItem('ai_api_url', data.ai_config.ai_api_url || '')
+          localStorage.setItem('ai_api_key', data.ai_config.ai_api_key || '')
+          localStorage.setItem('ai_model', data.ai_config.ai_model || '')
+          localStorage.setItem('ai_provider', data.ai_config.ai_provider || '')
+        }
+      }
+    } catch (e) {
+      console.error('Fetch me error:', e)
+    }
+  }
+
+  async function saveAIConfig(config) {
+    if (noAuthMode.value || !token.value) return false
+    try {
+      const res = await fetch('/api/user/ai-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token.value}`
+        },
+        body: JSON.stringify(config)
+      })
+      return res.ok
+    } catch (e) {
+      console.error('Save AI config error:', e)
+      return false
+    }
+  }
+
   return {
     token,
     username,
@@ -115,6 +165,8 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     register,
     logout,
-    checkNoAuthStatus
+    checkNoAuthStatus,
+    fetchMe,
+    saveAIConfig
   }
 })

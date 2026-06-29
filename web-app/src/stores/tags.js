@@ -37,7 +37,7 @@ function createTagId() {
 export const useTagStore = defineStore('deviceTags', () => {
   const tags = ref([])
   const deviceTags = ref({})
-  const selectedTagId = ref('')
+  const selectedTagIds = ref([])
 
   const tagMap = computed(() => {
     const map = new Map()
@@ -54,7 +54,7 @@ export const useTagStore = defineStore('deviceTags', () => {
     }))
   }
 
-  function load() {
+  function loadLocal() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (!raw) return
@@ -84,11 +84,61 @@ export const useTagStore = defineStore('deviceTags', () => {
 
       tags.value = normalizedTags
       deviceTags.value = normalizedDeviceTags
-      persist()
     } catch (e) {
       tags.value = []
       deviceTags.value = {}
     }
+  }
+
+  async function load() {
+    loadLocal() // 优先使用本地数据快速启动
+
+    try {
+      const token = localStorage.getItem('auth_token') || ''
+      const res = await fetch('/api/tags', {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        tags.value = data.tags || []
+        deviceTags.value = data.deviceTags || {}
+        persist()
+      }
+    } catch (e) {
+      console.error('[Tags] Failed to load tags from server:', e)
+    }
+  }
+
+  async function saveAndSync() {
+    persist()
+
+    try {
+      const token = localStorage.getItem('auth_token') || ''
+      const res = await fetch('/api/tags', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({
+          tags: tags.value,
+          deviceTags: deviceTags.value
+        })
+      })
+      if (!res.ok) {
+        console.error('[Tags] Failed to save tags:', res.statusText)
+      }
+    } catch (e) {
+      console.error('[Tags] Failed to sync tags to server:', e)
+    }
+  }
+
+  function updateTagsFromRemote(remoteTags, remoteDeviceTags) {
+    tags.value = remoteTags || []
+    deviceTags.value = remoteDeviceTags || {}
+    persist()
   }
 
   function tagNameExists(name, excludeId = '') {
@@ -97,7 +147,7 @@ export const useTagStore = defineStore('deviceTags', () => {
     return tags.value.some(tag => tag.id !== excludeId && tag.name.toLowerCase() === normalized)
   }
 
-  function createTag(name, color = DEFAULT_TAG_COLORS[0]) {
+  async function createTag(name, color = DEFAULT_TAG_COLORS[0]) {
     const normalized = normalizeName(name)
     if (!normalized || tagNameExists(normalized)) return null
 
@@ -107,11 +157,11 @@ export const useTagStore = defineStore('deviceTags', () => {
       color: normalizeColor(color)
     }
     tags.value.push(tag)
-    persist()
+    await saveAndSync()
     return tag
   }
 
-  function updateTag(id, updates) {
+  async function updateTag(id, updates) {
     const tag = tags.value.find(item => item.id === id)
     if (!tag) return false
 
@@ -120,11 +170,11 @@ export const useTagStore = defineStore('deviceTags', () => {
 
     tag.name = name
     tag.color = normalizeColor(updates?.color ?? tag.color)
-    persist()
+    await saveAndSync()
     return true
   }
 
-  function deleteTag(id) {
+  async function deleteTag(id) {
     tags.value = tags.value.filter(tag => tag.id !== id)
     const nextDeviceTags = {}
     for (const [deviceId, ids] of Object.entries(deviceTags.value)) {
@@ -134,7 +184,7 @@ export const useTagStore = defineStore('deviceTags', () => {
       }
     }
     deviceTags.value = nextDeviceTags
-    persist()
+    await saveAndSync()
   }
 
   function getTagIdsForDevice(deviceId) {
@@ -147,7 +197,7 @@ export const useTagStore = defineStore('deviceTags', () => {
       .filter(Boolean)
   }
 
-  function setDeviceTags(deviceId, tagIds) {
+  function setDeviceTagsInMemory(deviceId, tagIds) {
     if (!deviceId) return
     const allowedIds = new Set(tags.value.map(tag => tag.id))
     const nextIds = uniqueIds(tagIds, allowedIds)
@@ -163,35 +213,64 @@ export const useTagStore = defineStore('deviceTags', () => {
     persist()
   }
 
-  function toggleDeviceTag(deviceId, tagId) {
+  async function setDeviceTags(deviceId, tagIds) {
+    setDeviceTagsInMemory(deviceId, tagIds)
+    await saveAndSync()
+  }
+
+  async function toggleDeviceTag(deviceId, tagId) {
     if (!deviceId || !tagMap.value.has(tagId)) return
 
     const current = getTagIdsForDevice(deviceId)
     if (current.includes(tagId)) {
-      setDeviceTags(deviceId, current.filter(id => id !== tagId))
+      await setDeviceTags(deviceId, current.filter(id => id !== tagId))
     } else {
-      setDeviceTags(deviceId, [...current, tagId])
+      await setDeviceTags(deviceId, [...current, tagId])
     }
   }
 
   function setSelectedTag(id) {
-    selectedTagId.value = tagMap.value.has(id) ? id : ''
+    if (!id) {
+      selectedTagIds.value = []
+    } else if (tagMap.value.has(id)) {
+      selectedTagIds.value = [id]
+    }
   }
 
-  load()
+  function toggleSelectedTag(id) {
+    if (!tagMap.value.has(id)) return
+    const index = selectedTagIds.value.indexOf(id)
+    if (index > -1) {
+      selectedTagIds.value.splice(index, 1)
+    } else {
+      selectedTagIds.value.push(id)
+    }
+  }
+
+  function clearSelectedTags() {
+    selectedTagIds.value = []
+  }
+
+  // load() - 移去初始化时立即执行，改由 App.vue 中在 isLoggedIn 确定时触发
 
   return {
     tags,
     deviceTags,
-    selectedTagId,
+    selectedTagIds,
     tagNameExists,
     createTag,
     updateTag,
     deleteTag,
     getTagIdsForDevice,
     getTagsForDevice,
+    setDeviceTagsInMemory,
     setDeviceTags,
     toggleDeviceTag,
-    setSelectedTag
+    setSelectedTag,
+    toggleSelectedTag,
+    clearSelectedTags,
+    saveAndSync,
+    updateTagsFromRemote,
+    load
   }
 })

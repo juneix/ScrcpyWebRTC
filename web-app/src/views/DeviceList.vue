@@ -66,10 +66,18 @@
             </div>
           </div>
           <span class="selected-count-badge">已选 {{ groupControlStore.selectedSlaveIds.length }} 台</span>
+          <button 
+            v-if="groupControlStore.selectedSlaveIds.length > 0"
+            class="action-btn-mini primary-mini-btn"
+            @click.stop="openTagManager('batch')"
+            title="批量为选中的设备打标签"
+          >
+            打标签
+          </button>
         </div>
 
         <div class="header-actions">
-          <button class="deploy-btn secondary mobile-tag-action" @click="openTagManager('')" title="标签管理" aria-label="标签管理">
+          <button class="deploy-btn secondary mobile-tag-action" @click="openTagManager('full')" title="标签管理" aria-label="标签管理">
             <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
               <path d="M20 12v7a1 1 0 0 1-1 1h-7L4 12V5a1 1 0 0 1 1-1h7l8 8z"></path>
               <circle cx="8.5" cy="8.5" r="1.4"></circle>
@@ -91,8 +99,8 @@
       <section class="mobile-tag-bar">
         <button
           class="tag-filter"
-          :class="{ active: tagStore.selectedTagId === '' }"
-          @click="tagStore.setSelectedTag('')"
+          :class="{ active: tagStore.selectedTagIds.length === 0 }"
+          @click="tagStore.clearSelectedTags()"
         >
           <span class="tag-dot all"></span>
           <span class="tag-name">全部设备</span>
@@ -102,7 +110,7 @@
           v-for="tag in tagStore.tags"
           :key="tag.id"
           class="tag-filter"
-          :class="{ active: tagStore.selectedTagId === tag.id }"
+          :class="{ active: tagStore.selectedTagIds.includes(tag.id) }"
           :style="tagFilterStyle(tag)"
           @click="toggleSelectedTag(tag.id)"
         >
@@ -240,7 +248,7 @@ run.bat -id "{{ quickstartDeviceId || 'device_01' }}" -signaling "{{ signalingPr
             :tags="tagStore.getTagsForDevice(device.id)"
             @connect="connectDevice"
             @settings="openSettings"
-            @edit-tags="openTagManager"
+            @edit-tags="id => openTagManager('single', id)"
           />
         </div>
       </main>
@@ -259,8 +267,8 @@ run.bat -id "{{ quickstartDeviceId || 'device_01' }}" -signaling "{{ signalingPr
 
     <TagManagerModal
       v-if="showTagManager"
-      :devices="deviceStore.devices"
-      :initial-device-id="tagManagerDeviceId"
+      :devices="tagManagerDevices"
+      :mode="tagManagerMode"
       @close="closeTagManager"
     />
   </div>
@@ -320,7 +328,8 @@ let refreshInterval = null
 const showSettingsModal = ref(false)
 const selectedDeviceId = ref('')
 const showTagManager = ref(false)
-const tagManagerDeviceId = ref('')
+const tagManagerDevices = ref([])
+const tagManagerMode = ref('full')
 
 const localSettings = ref(getDeviceSettings(''))
 
@@ -329,7 +338,8 @@ const filteredDevices = computed(() => {
 
   return deviceStore.devices.filter(device => {
     const deviceTags = tagStore.getTagsForDevice(device.id)
-    const matchesTag = !tagStore.selectedTagId || deviceTags.some(tag => tag.id === tagStore.selectedTagId)
+    const matchesTag = tagStore.selectedTagIds.length === 0 || 
+      tagStore.selectedTagIds.every(id => deviceTags.some(tag => tag.id === id))
     if (!matchesTag) return false
 
     if (!query) return true
@@ -383,21 +393,33 @@ function resetSettings() {
   }
 }
 
-function openTagManager(deviceId = '') {
-  tagManagerDeviceId.value = deviceId
+function openTagManager(type, deviceId = '') {
+  if (type === 'full') {
+    tagManagerMode.value = 'full'
+    tagManagerDevices.value = deviceStore.devices
+  } else if (type === 'single' && deviceId) {
+    tagManagerMode.value = 'assign'
+    tagManagerDevices.value = deviceStore.devices.filter(d => d.id === deviceId)
+  } else if (type === 'batch') {
+    tagManagerMode.value = 'assign'
+    const selectedIds = groupControlStore.selectedSlaveIds
+    tagManagerDevices.value = deviceStore.devices.filter(d => selectedIds.includes(d.id))
+  }
   showTagManager.value = true
 }
 
 function closeTagManager() {
   showTagManager.value = false
-  tagManagerDeviceId.value = ''
+  tagManagerDevices.value = []
+  tagManagerMode.value = 'full'
 }
 
 function tagFilterStyle(tag) {
+  const active = tagStore.selectedTagIds.includes(tag.id)
   return {
-    color: tagStore.selectedTagId === tag.id ? '#fff' : 'var(--text-primary)',
+    color: active ? '#fff' : 'var(--text-primary)',
     borderColor: `${tag.color}80`,
-    background: tagStore.selectedTagId === tag.id ? `${tag.color}35` : 'transparent'
+    background: active ? `${tag.color}35` : 'transparent'
   }
 }
 
@@ -439,7 +461,7 @@ function copyCommandText() {
 }
 
 function toggleSelectedTag(tagId) {
-  tagStore.setSelectedTag(tagStore.selectedTagId === tagId ? '' : tagId)
+  tagStore.toggleSelectedTag(tagId)
 }
 
 onMounted(() => {
@@ -461,7 +483,7 @@ function connectDevice(deviceId) {
 }
 
 function handleOpenTagManagerEvent() {
-  openTagManager('')
+  openTagManager('full')
 }
 </script>
 

@@ -1114,6 +1114,30 @@ function handleDeviceMessage(payload) {
     }
   }
 
+  function closeAdbChannel() {
+    if (adbChannel) {
+      debugLog('[ADB] Closing adb-channel DataChannel...')
+      try {
+        adbChannel.close()
+      } catch (e) {
+        console.error('[ADB] Failed to close DataChannel:', e)
+      }
+      adbChannel = null
+    }
+    adbSendQueue = []
+    adbDataBuffer = []
+  }
+
+  function recreateAdbChannel() {
+    closeAdbChannel()
+    if (pc && pc.readyState !== 'closed') {
+      debugLog('[ADB] Recreating adb-channel DataChannel...')
+      adbChannel = pc.createDataChannel('adb-channel', { ordered: true })
+      adbChannel.binaryType = 'arraybuffer'
+      setupAdbChannel(adbChannel)
+    }
+  }
+
   async function startCameraStreaming() {
     debugLog('[Camera] startCameraStreaming() called, camera option:', options.camera)
     if (!options.camera || !cameraSupport.value) {
@@ -1295,6 +1319,8 @@ function handleDeviceMessage(payload) {
     onCommandResult,
     onAdbData,
     sendAdbData,
+    closeAdbChannel,
+    recreateAdbChannel,
     getVideoStats,
     resetStats,
     setAudioMuted,

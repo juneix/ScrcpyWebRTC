@@ -25,6 +25,9 @@ export default defineConfig({
       },
       '/agent': {
         target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443'
+      },
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443'
       }
     }
   },
