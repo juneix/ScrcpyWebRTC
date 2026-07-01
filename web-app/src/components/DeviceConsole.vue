@@ -153,6 +153,8 @@
           <input 
             v-model="inputCmd" 
             @keyup.enter="execCmd"
+            @keydown.up.prevent="navigateHistory('up')"
+            @keydown.down.prevent="navigateHistory('down')"
             placeholder="输入 Android Shell 命令分发执行以获取回复..."
             class="cmd-input"
           />
@@ -483,7 +485,8 @@ const defaultSkills = [
   { name: '📊 虚机健康检查', desc: '诊断虚机 CPU、可用内存与磁盘空间', prompt: '请对这台设备做一次全面的健康自检，检查系统负载(uptime/top)、可用内存(free)及存储空间(df -h /data)。' },
   { name: '📶 网络链路分析', desc: '诊断 WebRTC 码率与往返时延', prompt: '请获取当前的 WebRTC 传输质量指标(get_webrtc_stats)，分析 FPS、延迟(RTT/JitterBuffer)状况并给出一份中文分析。' },
   { name: '🔍 分析异常崩溃', desc: '抓取 logcat 检索最近报错日志', prompt: '检索最近 100 行 logcat 错误日志，查找是否有进程崩溃或 Exception 报错并总结根源。' },
-  { name: '🧹 清理系统空间', desc: '一键检索并清理系统无用缓存', prompt: '检查设备的磁盘存储空间。如果有可以清理的临时垃圾或缓存目录，请执行清理，并对比清理前后的空间容量变化。' }
+  { name: '🧹 清理系统空间', desc: '一键检索并清理系统无用缓存', prompt: '检查设备的磁盘存储空间。如果有可以清理的临时垃圾或缓存目录，请执行清理，并对比清理前后的空间容量变化。' },
+  { name: '🔧 诊断连接黑屏', desc: '一键分析连接、UDS 与网络拥塞', prompt: '请协助诊断连接黑屏问题。请读取 /data/local/tmp/cloudphone-agent.log 日志的最后 200 行，分析并检查以下几点：\n1. WebRTC 连接状态（Client state / ICEConnectionState）是否正常。\n2. UDS 三通道（Video/Control/Touch）是否已成功建立连接。\n3. CoreService 的退出代码及是否有 Exception 错误输出。\n4. 关键帧 Trace（KeyframeTrace）和 BWE 码率变化，排查是否受到 Clash 等代理软件的拦截或发生休眠息屏。\n最后用中文给出一份诊断结论和解决方案。' }
 ]
 
 const getCustomSkills = () => {
@@ -640,10 +643,61 @@ function cleanupConnection() {
   webrtc.value = null
 }
 
+// --- 终端命令历史翻阅记录 ---
+const cmdHistory = ref([])
+const historyIndex = ref(-1)
+let tempInput = ''
+
+try {
+  const saved = localStorage.getItem('cloudphone_shell_history')
+  if (saved) {
+    cmdHistory.value = JSON.parse(saved)
+  }
+} catch (e) {}
+
+function navigateHistory(direction) {
+  if (cmdHistory.value.length === 0) return
+  
+  if (direction === 'up') {
+    if (historyIndex.value === -1) {
+      tempInput = inputCmd.value
+      historyIndex.value = cmdHistory.value.length - 1
+    } else if (historyIndex.value > 0) {
+      historyIndex.value--
+    }
+    inputCmd.value = cmdHistory.value[historyIndex.value]
+  } else if (direction === 'down') {
+    if (historyIndex.value === -1) return
+    if (historyIndex.value === cmdHistory.value.length - 1) {
+      historyIndex.value = -1
+      inputCmd.value = tempInput
+    } else {
+      historyIndex.value++
+      inputCmd.value = cmdHistory.value[historyIndex.value]
+    }
+  }
+}
+
 // 终端指令 (支持单台 WebRTC 实时指令及多台 HTTP 批量指令下发双通路)
 async function execCmd() {
   if (!inputCmd.value.trim()) return
   const cmd = inputCmd.value.trim()
+  
+  // 将命令存入历史记录
+  if (cmd) {
+    if (cmdHistory.value.length === 0 || cmdHistory.value[cmdHistory.value.length - 1] !== cmd) {
+      cmdHistory.value.push(cmd)
+      if (cmdHistory.value.length > 100) {
+        cmdHistory.value.shift()
+      }
+      try {
+        localStorage.setItem('cloudphone_shell_history', JSON.stringify(cmdHistory.value))
+      } catch (e) {}
+    }
+  }
+  historyIndex.value = -1
+  tempInput = ''
+
   inputCmd.value = ''
 
   const targets = targetDeviceIds.value

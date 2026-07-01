@@ -31,7 +31,7 @@ docker pull buutuu/scrcpy-over-webrtc:latest
 
 ### 🔑 Default Connection Address & Credentials
 Once the services are successfully started, you can access the admin dashboard via browser on any device within the same network:
-* **Access URL**: `http://<YOUR_HOST_IP>:8443` (or `https://...` if SSL certificates are configured)
+* **Access URL**: `https://<YOUR_HOST_IP>:8443` (Signaling & Web runs in HTTPS mode by default)
 * **Default Username**: `admin`
 * **Default Password**: `admin123`
 

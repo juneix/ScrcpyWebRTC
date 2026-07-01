@@ -30,7 +30,7 @@
 
 ### 🔑 默认连接地址与账户凭证
 服务拉起成功后，在同局域网的电脑/手机浏览器中即可打开管理仪表盘大盘：
-* **访问地址**：`http://<您的宿主机IP>:8443` 或配置了 SSL 证书后的 `https://<您的宿主机IP>:8443`
+* **访问地址**：`https://<您的宿主机IP>:8443` (信令与 Web 默认以 HTTPS 模式运行)
 * **默认管理员账号**：`admin`
 * **默认管理员密码**：`admin123`
 
@@ -94,6 +94,36 @@
     ```
 
 *   **PUBLIC_IP**: 当有公网IP时填入公网IP，当局域网内使用内填入宿主机IP
+
+### 2.3 数据持久化与容器挂载 (推荐，升级不丢数据)
+为了方便容器的重建与更新，信令服务器将所有的物理持久化资产（包含用户账户 `users.json`、设备分组标签 `device_tags.json`、用户上传的文件 `downloads/`、虚机预览截图 `snapshots/`）一站式归集到了统一的 `data/` 目录中。
+
+在 Docker 部署时，建议将宿主机的物理目录挂载到容器内的 `/app/data` 目录：
+
+*   **Host 模式挂载运行**:
+    ```bash
+    docker run -d \
+      --name cp-aio \
+      --net=host \
+      -e PUBLIC_IP=<宿主机真实IP> \
+      -v ./data:/app/data \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+*   **常规模式挂载运行**:
+    ```bash
+    docker run -d --name cp-aio \
+      -p 8443:8443 \
+      -p 3478:3478/tcp \
+      -p 3478:3478/udp \
+      -p 55000-55100:55000-55100/udp \
+      -v ./data:/app/data \
+      -e PUBLIC_IP=<宿主机物理IP> \
+      -e COTURN_MIN_PORT=55000 \
+      -e COTURN_MAX_PORT=55100 \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+*   **挂载效果**：拉取最新的镜像并重建容器进行版本升级时，您的用户数据和上传资源都**不会被覆盖或丢失**。
+
 
 ## 3. 部署 Android Agent (入网)
 
